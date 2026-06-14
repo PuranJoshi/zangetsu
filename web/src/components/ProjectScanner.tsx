@@ -1,10 +1,12 @@
 import { useState } from "react"
 import type { DiscoveredFile, ScanTreeResult } from "../types"
+import { ErrorDisplay } from "./ErrorDisplay"
 
 interface Props {
   treeResult: ScanTreeResult | null
   discoveredFiles: DiscoveredFile[]
   isScanning: boolean
+  error: string | null
   onScanPath: (path: string) => void
   onDiscover: (path: string, description: string) => void
   onApprove: (path: string, approvedPaths: string[], configFiles?: string[]) => void
@@ -16,6 +18,7 @@ export function ProjectScanner({
   treeResult,
   discoveredFiles,
   isScanning,
+  error,
   onScanPath,
   onDiscover,
   onApprove,
@@ -89,6 +92,18 @@ export function ProjectScanner({
       <p className="text-sm text-text-secondary">
         Point to an existing project so advisors can give file-level recommendations.
       </p>
+
+      {/* Scan error */}
+      {error && (
+        <ErrorDisplay
+          message={error}
+          compact
+          onRetry={() => {
+            if (projectPath.trim()) onScanPath(projectPath.trim())
+          }}
+          onDismiss={onSkip}
+        />
+      )}
 
       {/* Path input */}
       {!treeResult && (

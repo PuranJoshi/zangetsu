@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from "react"
 import type { FramerMessage, FramerStatus } from "../types"
 import { MarkdownContent } from "./MarkdownContent"
+import { ErrorDisplay } from "./ErrorDisplay"
 
 interface Props {
   messages: FramerMessage[]
@@ -99,9 +100,7 @@ export function FramerWizard({ messages, status, error, onReply, onSkip }: Props
       <div className="shrink-0 border-t border-border pt-3 pb-4 flex flex-col gap-2">
         {/* Error */}
         {error && (
-          <div className="text-sm text-red-500 bg-red-500/10 px-4 py-2 rounded-lg">
-            {error}
-          </div>
+          <ErrorDisplay message={error} compact onDismiss={onSkip} />
         )}
 
         {/* Choice buttons */}

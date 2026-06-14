@@ -12,6 +12,7 @@ import { AdvisorsPanel } from "./components/AdvisorsPanel"
 import { PipelineTracker } from "./components/PipelineTracker"
 import { PlanView } from "./components/PlanView"
 import { PlanHistory } from "./components/PlanHistory"
+import { ErrorDisplay } from "./components/ErrorDisplay"
 
 // ---------------------------------------------------------------------------
 // Wizard phases
@@ -42,6 +43,7 @@ export default function App() {
   const [basePlanId, setBasePlanId] = useState<string | null>(null)
   const [reviewVersion, setReviewVersion] = useState(1)
   const [isReframing, setIsReframing] = useState(false)
+  const [reAdviseError, setReAdviseError] = useState<string | null>(null)
 
   // Track whether the user has an active session (not idle input)
   const hasActiveSession = phase !== "input"
@@ -187,6 +189,7 @@ export default function App() {
   const handleReAdvise = useCallback(
     async (feedback: string) => {
       if (!basePlanId) return
+      setReAdviseError(null)
 
       try {
         // 1. Init review session on server (creates transcript with
@@ -265,8 +268,10 @@ export default function App() {
         setPhase("framing")
         framer.startFraming(contextQuestion)
       } catch (err) {
-        // If init fails, stay on the current plan view.
-        console.error("Re-advise init failed:", err)
+        // If init fails, stay on the current plan view and show error.
+        setReAdviseError(
+          err instanceof Error ? err.message : "Re-advise failed"
+        )
       }
     },
     [basePlanId, rawDescription, framer]
@@ -291,6 +296,7 @@ export default function App() {
     setBasePlanId(null)
     setReviewVersion(1)
     setIsReframing(false)
+    setReAdviseError(null)
     council.reset()
     scanner.reset()
     route.navigate("/")
@@ -450,6 +456,7 @@ export default function App() {
                   scanner.phase === "discovering" ||
                   scanner.phase === "approving"
                 }
+                error={scanner.error}
                 onScanPath={scanner.scanTree}
                 onDiscover={scanner.discoverFiles}
                 onApprove={scanner.approveFiles}
@@ -482,16 +489,26 @@ export default function App() {
                 )}
 
                 {council.session.stage === "error" && (
-                  <div className="mx-4 my-4 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
-                    <p className="text-sm text-red-600 dark:text-red-400">
-                      {council.session.error || "An error occurred"}
-                    </p>
-                  </div>
+                  <ErrorDisplay
+                    message={council.session.error || "An error occurred during advising"}
+                    onRetry={() => startAdvisors(projectContext)}
+                    onDismiss={handleNewSession}
+                  />
                 )}
               </>
             )}
 
             {/* Phase: Plan complete */}
+            {phase === "done" && reAdviseError && (
+              <div className="max-w-6xl mx-auto w-full px-6 pt-4">
+                <ErrorDisplay
+                  message={reAdviseError}
+                  compact
+                  onRetry={() => setReAdviseError(null)}
+                  onDismiss={() => setReAdviseError(null)}
+                />
+              </div>
+            )}
             {phase === "done" && council.session.plan && (
               <PlanView
                 plan={council.session.plan}
