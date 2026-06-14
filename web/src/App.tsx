@@ -141,20 +141,12 @@ export default function App() {
       if (!framedRequirement) return
 
       // If planId is already set (e.g. from re-advise init), reuse it.
-      // Otherwise generate a fresh one for a brand-new session.
+      // Otherwise generate a fresh hex-only ID for a brand-new session.
       let usePlanId = planId
       if (!usePlanId) {
-        const id =
+        usePlanId =
           crypto.randomUUID?.().replace(/-/g, "").slice(0, 12) ||
           Math.random().toString(36).slice(2, 14)
-        const slug = rawDescription
-          .replace(/[^a-zA-Z0-9\s]/g, "")
-          .trim()
-          .toLowerCase()
-          .split(/\s+/)
-          .slice(0, 4)
-          .join("-") || "plan"
-        usePlanId = `${id}-${slug}`
         setPlanId(usePlanId)
         setBasePlanId(usePlanId)
         setReviewVersion(1)

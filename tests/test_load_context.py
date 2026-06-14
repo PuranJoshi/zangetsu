@@ -22,6 +22,7 @@ from code_council.cli import (
     _RESUME_SYNTHESIS,
 )
 from code_council.config import Settings
+from code_council.utils import slugify, plan_filename_stem
 
 
 # ---------------------------------------------------------------------------
@@ -62,34 +63,11 @@ def _write_transcript(settings: Settings, plan_id: str, data: dict) -> None:
 
 
 class TestGeneratePlanId:
-    def test_format_hex_dash_slug(self) -> None:
+    def test_format_hex_only(self) -> None:
         pid = _generate_plan_id("Add user authentication")
-        parts = pid.split("-", 1)
-        assert len(parts) == 2
-        # hex part is 12 hex chars
-        assert len(parts[0]) == 12
-        assert all(c in "0123456789abcdef" for c in parts[0])
-        # slug part is lowercase words
-        assert parts[1] == "add-user-authentication"
-
-    def test_truncates_to_four_content_words(self) -> None:
-        pid = _generate_plan_id("I want to build a cash deposit feature now")
-        slug = pid.split("-", 1)[1]
-        # Stop words stripped; keeps first 4 meaningful words
-        assert slug == "build-cash-deposit-feature"
-
-    def test_strips_special_characters(self) -> None:
-        pid = _generate_plan_id("Add JWT auth! (v2) -- for the API")
-        slug = pid.split("-", 1)[1]
-        # special chars removed, only alphanumeric words kept
-        assert "!" not in slug
-        assert "(" not in slug
-        assert "--" not in slug
-
-    def test_empty_description_fallback(self) -> None:
-        pid = _generate_plan_id("")
-        slug = pid.split("-", 1)[1]
-        assert slug == "plan"
+        # plan_id is now a 12-char hex string (no slug)
+        assert len(pid) == 12
+        assert all(c in "0123456789abcdef" for c in pid)
 
     def test_unique_ids(self) -> None:
         """Two calls with the same description produce different IDs."""
@@ -97,10 +75,46 @@ class TestGeneratePlanId:
         id2 = _generate_plan_id("Same description")
         assert id1 != id2  # different UUID hex prefixes
 
-    def test_slug_is_lowercase(self) -> None:
-        pid = _generate_plan_id("ADD USER AUTH")
-        slug = pid.split("-", 1)[1]
-        assert slug == slug.lower()
+    def test_description_does_not_affect_format(self) -> None:
+        """plan_id format is the same regardless of description."""
+        pid = _generate_plan_id("")
+        assert len(pid) == 12
+        assert all(c in "0123456789abcdef" for c in pid)
+
+
+# ---------------------------------------------------------------------------
+# slugify + plan_filename_stem
+# ---------------------------------------------------------------------------
+
+
+class TestSlugify:
+    def test_strips_stop_words(self) -> None:
+        assert slugify("I want to build a cash deposit feature") == "build-cash-deposit-feature"
+
+    def test_truncates_to_four_words(self) -> None:
+        assert slugify("build cash deposit feature now today") == "build-cash-deposit-feature"
+
+    def test_strips_special_characters(self) -> None:
+        s = slugify("Add JWT auth! (v2) -- for the API")
+        assert "!" not in s
+        assert "(" not in s
+
+    def test_empty_fallback(self) -> None:
+        assert slugify("") == "plan"
+
+    def test_lowercase(self) -> None:
+        s = slugify("ADD USER AUTH")
+        assert s == s.lower()
+
+
+class TestPlanFilenameStem:
+    def test_format(self) -> None:
+        stem = plan_filename_stem("abcdef012345", "cash deposit")
+        assert stem == "abcdef012345-cash-deposit"
+
+    def test_empty_description(self) -> None:
+        stem = plan_filename_stem("abcdef012345", "")
+        assert stem == "abcdef012345-plan"
 
 
 # ---------------------------------------------------------------------------

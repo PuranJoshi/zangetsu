@@ -589,13 +589,12 @@ class TestStorageBasePlanId:
 
 
 class TestGeneratePlanId:
-    """Ensure generate_plan_id produces valid, unique IDs."""
+    """Ensure generate_plan_id produces valid, unique hex-only IDs."""
 
     def test_format(self) -> None:
         pid = generate_plan_id("Add user authentication")
-        parts = pid.split("-", 1)
-        assert len(parts) == 2
-        assert len(parts[0]) == 12  # hex prefix
+        assert len(pid) == 12
+        assert all(c in "0123456789abcdef" for c in pid)
 
     def test_unique(self) -> None:
         a = generate_plan_id("same description")

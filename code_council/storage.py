@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from code_council.config import Settings, get_settings
+from code_council.utils import plan_filename_stem
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,8 @@ def save_plan(
     _ensure_dir(plan_dir)
 
     ts = datetime.now(timezone.utc).isoformat()
-    filename = f"plan-{plan_id}.json"
+    stem = plan_filename_stem(plan_id, change_description)
+    filename = f"plan-{stem}.json"
     path = plan_dir / filename
 
     data: dict[str, Any] = {
@@ -105,16 +107,35 @@ def save_plan(
 def load_plan(plan_id: str, settings: Settings | None = None) -> dict[str, Any] | None:
     """Load a plan by ID. Returns the plan dict or None if not found.
 
+    Filenames include a human-readable slug (``plan-<hex>-<slug>.json``),
+    but the ``plan_id`` is just the hex prefix.  We try an exact match
+    first (``plan-<plan_id>.json`` for backward compat), then glob for
+    ``plan-<plan_id>-*.json``.
+
     Returns None (not raises) for missing or corrupt files. This is the
     "forgiving" approach -- the caller decides what to do about missing plans,
     not us. Crashing because a JSON file is corrupt would be poor UX.
     """
     settings = settings or get_settings()
-    path = settings.plan_path / f"plan-{plan_id}.json"
-    if not path.is_file():
+    plan_dir = settings.plan_path
+
+    # Exact match (backward compat with old slug-in-id filenames)
+    exact = plan_dir / f"plan-{plan_id}.json"
+    if exact.is_file():
+        try:
+            return json.loads(exact.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Failed to load plan %s: %s", plan_id, exc)
+            return None
+
+    # Glob match: plan-<hex>-<slug>.json
+    matches = list(plan_dir.glob(f"plan-{plan_id}-*.json"))
+    if not matches:
         return None
+    # Take the most recent if multiple (shouldn't happen)
+    matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     try:
-        return json.loads(path.read_text())
+        return json.loads(matches[0].read_text())
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning("Failed to load plan %s: %s", plan_id, exc)
         return None
@@ -174,9 +195,20 @@ def list_recent_plans(
 def delete_plan(plan_id: str, settings: Settings | None = None) -> bool:
     """Delete a plan by ID. Returns True if deleted."""
     settings = settings or get_settings()
-    path = settings.plan_path / f"plan-{plan_id}.json"
-    if path.is_file():
-        path.unlink()
-        logger.info("Plan deleted: %s", path)
+    plan_dir = settings.plan_path
+
+    # Exact match (backward compat)
+    exact = plan_dir / f"plan-{plan_id}.json"
+    if exact.is_file():
+        exact.unlink()
+        logger.info("Plan deleted: %s", exact)
         return True
+
+    # Glob match: plan-<hex>-<slug>.json
+    matches = list(plan_dir.glob(f"plan-{plan_id}-*.json"))
+    if matches:
+        matches[0].unlink()
+        logger.info("Plan deleted: %s", matches[0])
+        return True
+
     return False

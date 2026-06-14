@@ -175,7 +175,7 @@ function PlanList({ onSelectPlan }: { onSelectPlan: (id: string) => void }) {
               </p>
               <p className="text-xs text-text-muted mt-0.5">
                 {new Date(plan.timestamp).toLocaleDateString()} &middot;{" "}
-                <span className="font-mono">{plan.plan_id.slice(0, 12)}</span>
+                <span className="font-mono">{plan.plan_id}</span>
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">

@@ -10,7 +10,7 @@ import re
 import uuid
 
 
-# Common English filler/stop words stripped from plan-ID slugs.
+# Common English filler/stop words stripped from filename slugs.
 STOP_WORDS: frozenset[str] = frozenset({
     "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
     "of", "with", "by", "from", "is", "it", "its", "this", "that", "be",
@@ -22,28 +22,45 @@ STOP_WORDS: frozenset[str] = frozenset({
 })
 
 
-def generate_plan_id(description: str) -> str:
-    """Generate a plan ID in the format ``<hex>-<slug>``.
+def slugify(description: str) -> str:
+    """Create a short, filesystem-safe slug from a description.
 
-    The hex prefix is 12 characters from a UUID4 for uniqueness.
-    The slug is a short, filesystem-safe summary derived from the
-    description -- stop/filler words are stripped so the slug captures
-    the *meaningful* terms (max 4 content words, lowercased, hyphened).
+    Strips stop/filler words and keeps the first 4 meaningful content
+    words (lowercased, hyphen-separated).  Falls back to ``"plan"``
+    for empty descriptions.
 
     Examples:
-        "Add user authentication"    -> "58cf313f796a-add-user-authentication"
-        "Want to build a cash deposit feature"
-                                     -> "a1b2c3d4e5f6-cash-deposit-feature"
-        "I need to implement payment webhooks for Stripe"
-                                     -> "a1b2c3d4e5f6-implement-payment-webhooks-stripe"
-        ""                           -> "58cf313f796a-plan"
+        "Add user authentication"       -> "add-user-authentication"
+        "Want to build a cash deposit"  -> "build-cash-deposit"
+        ""                              -> "plan"
     """
-    hex_part = uuid.uuid4().hex[:12]
+    cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", description).strip().lower()
+    words = [w for w in cleaned.split() if w not in STOP_WORDS]
+    return "-".join(words[:4]) if words else "plan"
 
-    # Slugify: keep only alphanumeric + spaces, collapse, strip stop words,
-    # then take the first 4 meaningful words.
-    slug = re.sub(r"[^a-zA-Z0-9\s]", "", description).strip().lower()
-    words = [w for w in slug.split() if w not in STOP_WORDS]
-    slug = "-".join(words[:4]) if words else "plan"
 
-    return f"{hex_part}-{slug}"
+def generate_plan_id(description: str) -> str:
+    """Generate a plan ID as a 12-character hex string.
+
+    The plan ID is a unique opaque identifier (no slug).  Use
+    :func:`plan_filename_stem` when you need a human-readable
+    filename that includes a slug.
+
+    Examples:
+        "Add user authentication"  -> "58cf313f796a"
+        ""                         -> "a1b2c3d4e5f6"
+    """
+    return uuid.uuid4().hex[:12]
+
+
+def plan_filename_stem(plan_id: str, description: str) -> str:
+    """Build a human-readable filename stem for a plan/transcript.
+
+    Format: ``<plan_id>-<slug>``  (e.g. ``58cf313f796a-cash-deposit``).
+    The slug is derived from *description* via :func:`slugify`.
+
+    Used by storage and transcript modules for the on-disk filename
+    while the internal ``plan_id`` remains the short hex string.
+    """
+    slug = slugify(description)
+    return f"{plan_id}-{slug}"

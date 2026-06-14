@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from code_council.utils import plan_filename_stem
+
 logger = logging.getLogger(__name__)
 
 # Default transcript directory -- can be overridden via Settings
@@ -35,9 +37,27 @@ def _ensure_dir(path: Path) -> None:
 
 
 def _transcript_path(plan_id: str, transcript_dir: Path | None = None) -> Path:
-    """Return the path for a transcript file."""
+    """Return the path for a transcript file.
+
+    Tries an exact match first (``transcript-<plan_id>.json``), then
+    globs for ``transcript-<plan_id>-*.json`` (slug-suffixed filename).
+    If neither exists, returns the exact path (for creation).
+    """
     directory = transcript_dir or _DEFAULT_TRANSCRIPT_DIR
-    return directory / f"transcript-{plan_id}.json"
+
+    exact = directory / f"transcript-{plan_id}.json"
+    if exact.is_file():
+        return exact
+
+    # Glob for slug-suffixed names
+    if directory.is_dir():
+        matches = list(directory.glob(f"transcript-{plan_id}-*.json"))
+        if matches:
+            matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            return matches[0]
+
+    # Default: exact path (used when creating a new transcript)
+    return exact
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +99,8 @@ def init_transcript(
         "status": status,
     }
 
-    path = _transcript_path(plan_id, directory)
+    stem = plan_filename_stem(plan_id, question)
+    path = directory / f"transcript-{stem}.json"
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     logger.info("Transcript created at %s", path)
     return path
