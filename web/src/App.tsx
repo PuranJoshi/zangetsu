@@ -136,12 +136,57 @@ export default function App() {
   const handleCorrect = useCallback(
     (correction: string) => {
       setIsReframing(true)
-      const correctedDescription = `${rawDescription}\n\nCorrection: ${correction}`
-      framer.startFraming(correctedDescription)
+
+      // Build context-rich prompt so the framer extends rather than restarts
+      const parts: string[] = []
+      parts.push(`Original request: ${rawDescription}`)
+
+      // Include the framing conversation history
+      if (framer.messages.length > 0) {
+        parts.push("")
+        parts.push("=== Previous Framing Conversation ===")
+        for (const msg of framer.messages) {
+          const role = msg.role === "framer" ? "Framer" : "User"
+          parts.push(`${role}: ${msg.text}`)
+        }
+        parts.push("=== End Conversation ===")
+      }
+
+      // Include the current framed requirement
+      if (framedRequirement) {
+        parts.push("")
+        parts.push("=== Current Framed Requirement ===")
+        parts.push(`Type: ${framedRequirement.type}`)
+        parts.push(`Title: ${framedRequirement.title}`)
+        parts.push(`Description: ${framedRequirement.description}`)
+        if (framedRequirement.acceptance_criteria?.length) {
+          parts.push(`Acceptance Criteria:\n${framedRequirement.acceptance_criteria.map((ac: string) => `- ${ac}`).join("\n")}`)
+        }
+        if (framedRequirement.assumptions?.length) {
+          parts.push(`Assumptions:\n${framedRequirement.assumptions.map((a: string) => `- ${a}`).join("\n")}`)
+        }
+        if (framedRequirement.out_of_scope?.length) {
+          parts.push(`Out of Scope:\n${framedRequirement.out_of_scope.map((o: string) => `- ${o}`).join("\n")}`)
+        }
+        if (framedRequirement.stories?.length) {
+          parts.push(`Stories (${framedRequirement.stories.length}):`)
+          for (const story of framedRequirement.stories) {
+            parts.push(`  - [${story.type}] ${story.title}: ${story.description}`)
+          }
+        }
+        parts.push("=== End Current Requirement ===")
+      }
+
+      parts.push("")
+      parts.push(`USER CORRECTION: ${correction}`)
+      parts.push("")
+      parts.push("Please revise the requirement based on the correction above. Keep everything that is still valid and only modify what the user asked to change. You may ask clarifying questions or produce the updated framed requirement directly.")
+
+      framer.startFraming(parts.join("\n"))
       setPhase("framing")
       setIsReframing(false)
     },
-    [rawDescription, framer]
+    [rawDescription, framer, framedRequirement]
   )
 
   const startAdvisors = useCallback(
@@ -284,10 +329,41 @@ export default function App() {
   )
 
   const handleReFrame = useCallback(() => {
-    // Go all the way back to the framing phase
+    // Build context-rich prompt so the framer extends rather than restarts
+    const parts: string[] = []
+    parts.push(`Original request: ${rawDescription}`)
+
+    // Include the current framed requirement so the LLM has full context
+    if (framedRequirement) {
+      parts.push("")
+      parts.push("=== Current Framed Requirement ===")
+      parts.push(`Type: ${framedRequirement.type}`)
+      parts.push(`Title: ${framedRequirement.title}`)
+      parts.push(`Description: ${framedRequirement.description}`)
+      if (framedRequirement.acceptance_criteria?.length) {
+        parts.push(`Acceptance Criteria:\n${framedRequirement.acceptance_criteria.map((ac: string) => `- ${ac}`).join("\n")}`)
+      }
+      if (framedRequirement.assumptions?.length) {
+        parts.push(`Assumptions:\n${framedRequirement.assumptions.map((a: string) => `- ${a}`).join("\n")}`)
+      }
+      if (framedRequirement.out_of_scope?.length) {
+        parts.push(`Out of Scope:\n${framedRequirement.out_of_scope.map((o: string) => `- ${o}`).join("\n")}`)
+      }
+      if (framedRequirement.stories?.length) {
+        parts.push(`Stories (${framedRequirement.stories.length}):`)
+        for (const story of framedRequirement.stories) {
+          parts.push(`  - [${story.type}] ${story.title}: ${story.description}`)
+        }
+      }
+      parts.push("=== End Current Requirement ===")
+    }
+
+    parts.push("")
+    parts.push("The user wants to re-frame this requirement. Please review the above context and revise. You may ask clarifying questions or produce an updated framed requirement directly.")
+
     setPhase("framing")
-    framer.startFraming(rawDescription)
-  }, [rawDescription, framer])
+    framer.startFraming(parts.join("\n"))
+  }, [rawDescription, framer, framedRequirement])
 
   // ---------------------------------------------------------------------------
   // Navigation: return to session vs new session
