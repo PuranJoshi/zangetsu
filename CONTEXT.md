@@ -45,8 +45,8 @@ zangetsu/
 ├── code_council/                    # Main Python package
 │   ├── __init__.py                  # Package init, __version__ = "0.1.0"
 │   ├── cli.py                      # Typer CLI entry point (bankai command + subcommands + serve)
-│   ├── daemon.py                   # FastAPI server for web UI (WS framer, SSE pipeline, REST)
-│   ├── utils.py                    # Shared utilities (generate_plan_id, STOP_WORDS)
+│   ├── daemon.py                   # FastAPI server for web UI (WS framer with transcript persistence, SSE pipeline, REST)
+│   ├── utils.py                    # Shared utilities (generate_plan_id, slugify, plan_filename_stem)
 │   ├── config.py                   # Settings via pydantic-settings + env file loader
 │   ├── llm.py                      # Langdock/OpenAI LLM wrapper with retry logic
 │   ├── context.py                  # Project filesystem scanner for advisor context
@@ -72,13 +72,13 @@ zangetsu/
 │   └── src/
 │       ├── main.tsx                 # React entry point
 │       ├── App.tsx                  # Root component -- 6-phase wizard orchestrator
-│       ├── index.css                # Tailwind + custom theme (system light/dark)
+│       ├── index.css                # Tailwind + custom theme (system light/dark) + scroll-on-hover utility
 │       ├── types.ts                 # Shared types mirroring Python models
 │       ├── hooks/
 │       │   ├── useFramer.ts         # WebSocket hook for framer interview
 │       │   ├── useCouncilStream.ts  # SSE hook for advisor + synthesis pipeline
 │       │   ├── useProjectScan.ts    # REST hook for project scanning flow
-│       │   └── useRoute.ts          # Minimal History API router
+│       │   └── useRoute.ts          # Minimal History API router (/ and /history only)
 │       └── components/
 │           ├── DescriptionInput.tsx  # Step 1: feature description input + transcript loader
 │           ├── FramerWizard.tsx      # Step 2: full-height chat-style framer Q&A
@@ -88,7 +88,8 @@ zangetsu/
 │           ├── AdvisorCard.tsx       # Individual expandable advisor card
 │           ├── PipelineTracker.tsx   # Race-track progress bar (inline in header)
 │           ├── PlanView.tsx          # Step 6: synthesized plan (tabbed layout, sticky footer)
-│           ├── PlanHistory.tsx       # Plan list / history view
+│           ├── PlanHistory.tsx       # Plan list / history view (detail via component state)
+│           ├── ErrorDisplay.tsx      # Reusable error component (retry/dismiss, compact variant)
 │           └── MarkdownContent.tsx   # react-markdown wrapper
 └── tests/                          # Test suite (pytest + pytest-asyncio)
     ├── __init__.py
@@ -185,7 +186,7 @@ clicks "Re-advise":
 
 1. The frontend calls `POST /council/review/init` with the original plan's ID,
    description, and the user's feedback.
-2. The backend generates a **new plan_id** (fresh hex + slug), creates a
+2. The backend generates a **new plan_id** (12-char hex), creates a
    **new transcript** with `status="review"` and `base_plan_id` pointing to
    the original plan, copies the original transcript's framer Q&A context,
    and appends the feedback. Returns the new plan_id, the original
@@ -234,9 +235,10 @@ Orchestrates the full pipeline including the post-synthesis review loop. Contain
   passes it through the humaniser skill (via LLM) to remove AI writing
   patterns, prints to terminal, and optionally saves to a user-specified file
 - Plan ID generation is handled by `generate_plan_id()` in `utils.py` (imported
-  as `_generate_plan_id`). When resuming via `--load`, the original plan ID is
-  reused instead of generating a new one, so corrections append to the same
-  transcript file.
+  as `_generate_plan_id`), which returns a 12-char hex-only ID. Filenames use
+  `plan_filename_stem()` to add a human-readable slug. When resuming via
+  `--load`, the original plan ID is reused instead of generating a new one,
+  so corrections append to the same transcript file.
 - `_resolve_load_context()` -- multi-source resolver that checks plans first,
   then transcripts, and returns a resume descriptor with the appropriate
   resume point and available data
@@ -326,17 +328,22 @@ Plan state machine with 9 states:
 (plus `REJECTED` and `STALLED` recovery paths). `VALID_TRANSITIONS` dict
 enforces legal state changes. Tracks negotiation rounds.
 
-### `storage.py` (~180 lines)
-JSON file-based plan persistence at `~/.code-council/plans/`. Saves plan data,
-state, advisor responses, context summary, and timestamps. Forgiving on load
-(returns None for missing/corrupt files). Supports `base_plan_id` for linking
-re-advise plans back to their original plan.
+### `storage.py` (~200 lines)
+JSON file-based plan persistence at `~/.code-council/plans/`. Filenames use
+`plan-<hex>-<slug>.json` for human readability; the stored `plan_id` is the
+hex-only identifier. Load and delete use glob matching (`plan-<hex>-*.json`)
+with backward-compat exact match for old-format files. Saves plan data, state,
+advisor responses, context summary, and timestamps. Forgiving on load (returns
+None for missing/corrupt files). Supports `base_plan_id` for linking re-advise
+plans back to their original plan.
 
-### `transcript.py` (~210 lines)
+### `transcript.py` (~230 lines)
 Session transcript storage at `~/.code-council/transcripts/`. Records the
 running dialogue of a bankai session: original question, every framer exchange
-(question, answer, choices), and the final framed requirement. Files are keyed
-by `plan_id` and rewritten on each append. Contains:
+(question, answer, choices), and the final framed requirement. Filenames use
+`transcript-<hex>-<slug>.json`; lookup uses glob matching with backward-compat
+exact match. Created by both the CLI and the web UI WebSocket framer.
+Contains:
 - `init_transcript()` -- creates transcript file with original question.
   Accepts optional `base_plan_id` (links review transcripts to their original)
   and `status` (`"active"` for normal, `"review"` for re-advise sessions).
@@ -346,14 +353,18 @@ by `plan_id` and rewritten on each append. Contains:
 - `list_recent_transcripts()` -- lists recent transcripts with summary
   metadata (plan_id, timestamp, question, status, message count)
 
-### `utils.py` (~50 lines)
+### `utils.py` (~70 lines)
 Shared utilities used by both `cli.py` and `daemon.py`:
 - `STOP_WORDS` -- frozenset of ~60 common English filler words stripped from
-  plan-ID slugs
-- `generate_plan_id(description)` -- creates plan IDs in the format
-  `<hex>-<slug>` (e.g., `58cf313f796a-cash-deposit-feature`). The hex prefix
-  is 12 characters from UUID4 for uniqueness; the slug strips stop words and
-  keeps the first 4 meaningful content words
+  filename slugs
+- `slugify(description)` -- creates a short, filesystem-safe slug from a
+  description (strips stop words, keeps first 4 meaningful words, lowercased)
+- `generate_plan_id(description)` -- returns a 12-character hex string from
+  UUID4. The plan_id is an opaque identifier with no slug component.
+- `plan_filename_stem(plan_id, description)` -- builds `<hex>-<slug>` for
+  human-readable filenames (e.g., `58cf313f796a-cash-deposit`). Used by
+  storage and transcript modules for on-disk filenames while the internal
+  `plan_id` remains the short hex string.
 
 ### Skill Files (`code_council/skills/`)
 
@@ -363,7 +374,7 @@ The body contains the system prompt for that advisor.
 
 | File | Type | Temp Rank | Focus Area |
 |---|---|---|---|
-| `executor.md` | advisor | 0 | File change sequence, effort, phasing |
+| `executor.md` | advisor | 0 | TDD, file change sequence, effort, lean incremental delivery |
 | `security.md` | advisor | 1 | Input validation, auth, OWASP, secrets |
 | `quality.md` | advisor | 2 | Testability, readability, error handling |
 | `business.md` | advisor | 3 | Problem validation, value, opportunity cost |
@@ -541,14 +552,19 @@ one per line, `#` comments supported).
 
 8. **Incremental transcript storage** -- Transcript file is created at pipeline
    start and appended to after each event (read-modify-write). Progress is
-   preserved even if the pipeline crashes mid-session.
+   preserved even if the pipeline crashes mid-session. The web UI WebSocket
+   framer also creates and appends to transcripts.
+
+9. **Simple URL routing** -- The web UI uses only two URL routes (`/` and
+   `/history`). Plan detail navigation is handled by component state, not
+   deep-linked URLs, keeping the router minimal.
 
 ---
 
 ## Test Suite
 
 17 test files (+ `conftest.py` with shared fixtures) using `FakeLLM` (no real
-API calls, 223 tests total). Run with `pytest`.
+API calls, 227 tests total). Run with `pytest`.
 
 | Test File | Coverage |
 |---|---|
@@ -566,7 +582,7 @@ API calls, 223 tests total). Run with `pytest`.
 | `test_state_transitions.py` | Happy path, invalid transitions, recovery paths |
 | `test_state_negotiation.py` | can_negotiate boundary, round recording |
 | `test_transcript.py` | Init, append, load, full conversation flow |
-| `test_load_context.py` | Plan ID generation, context resolution, Q&A extraction, resume points |
+| `test_load_context.py` | Plan ID generation, slugify, plan_filename_stem, context resolution, Q&A extraction, resume points |
 | `test_export_markdown.py` | Markdown conversion, humaniser skill loader, all plan sections |
 | `test_review_init.py` | Re-advise review init: transcript creation, base_plan_id linking, framer context copy, feedback append, no plan created, storage base_plan_id |
 
