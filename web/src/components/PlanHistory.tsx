@@ -207,25 +207,27 @@ function PlanList({ onSelectPlan }: { onSelectPlan: (id: string) => void }) {
 
 // ---------------------------------------------------------------------------
 // PlanHistory -- combines list + detail views
+//
+// Plan detail is managed by component state (selectedPlanId), not by URL.
+// Only /history is a URL route; clicking a plan sets local state.
 // ---------------------------------------------------------------------------
 
 interface Props {
-  planId?: string
   onLoadPlan: (plan: ChangePlan, description: string, framedRequirement?: FramedRequirement) => void
 }
 
-export function PlanHistory({ planId, onLoadPlan }: Props) {
-  const { navigate } = useRoute()
+export function PlanHistory({ onLoadPlan }: Props) {
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null)
 
-  if (planId) {
+  if (selectedPlanId) {
     return (
       <PlanDetail
-        planId={planId}
-        onBack={() => navigate("/history")}
+        planId={selectedPlanId}
+        onBack={() => setSelectedPlanId(null)}
         onLoad={onLoadPlan}
       />
     )
   }
 
-  return <PlanList onSelectPlan={(id) => navigate(`/history/${id}`)} />
+  return <PlanList onSelectPlan={setSelectedPlanId} />
 }

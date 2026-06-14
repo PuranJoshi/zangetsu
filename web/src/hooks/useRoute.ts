@@ -2,6 +2,9 @@ import { useCallback, useSyncExternalStore } from "react"
 
 // ---------------------------------------------------------------------------
 // Minimal History-API router (no library dependency)
+//
+// Only two URLs:  /  (council wizard)  and  /history  (plan list).
+// Plan detail is handled by component state inside PlanHistory, not by URL.
 // ---------------------------------------------------------------------------
 
 type Listener = () => void
@@ -44,13 +47,9 @@ export function navigate(
 
 export type Route =
   | { view: "council" }
-  | { view: "history"; planId?: string }
+  | { view: "history" }
 
 function parseRoute(pathname: string): Route {
-  if (pathname.startsWith("/history/")) {
-    const id = pathname.slice("/history/".length)
-    return { view: "history", planId: id || undefined }
-  }
   if (pathname === "/history") {
     return { view: "history" }
   }

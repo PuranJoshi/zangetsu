@@ -362,7 +362,6 @@ export default function App() {
   // ---------------------------------------------------------------------------
 
   const isHistoryView = route.view === "history"
-  const historyPlanId = route.view === "history" ? route.planId : undefined
 
   return (
     <>
@@ -421,7 +420,6 @@ export default function App() {
       <main className="flex-1">
         {isHistoryView ? (
           <PlanHistory
-            planId={historyPlanId}
             onLoadPlan={handleLoadPlan}
           />
         ) : (
