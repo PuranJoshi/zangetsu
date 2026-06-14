@@ -69,6 +69,7 @@ export function useCouncilStream(): UseCouncilStreamResult {
             change_description: changeDescription,
             framed_requirement: framedRequirement,
             project_context: projectContext ?? null,
+            base_plan_id: basePlanId ?? null,
           }),
           signal: controller.signal,
         })

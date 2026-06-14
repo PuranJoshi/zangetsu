@@ -80,14 +80,14 @@ zangetsu/
 │       │   ├── useProjectScan.ts    # REST hook for project scanning flow
 │       │   └── useRoute.ts          # Minimal History API router
 │       └── components/
-│           ├── DescriptionInput.tsx  # Step 1: feature description input
-│           ├── FramerWizard.tsx      # Step 2: framer Q&A wizard with choices
+│           ├── DescriptionInput.tsx  # Step 1: feature description input + transcript loader
+│           ├── FramerWizard.tsx      # Step 2: full-height chat-style framer Q&A
 │           ├── RequirementReview.tsx # Step 3: framed requirement review/correct
 │           ├── ProjectScanner.tsx    # Step 4: project scan + file approval
 │           ├── AdvisorsPanel.tsx     # Step 5: advisor response grid
 │           ├── AdvisorCard.tsx       # Individual expandable advisor card
-│           ├── PipelineTracker.tsx   # Horizontal pipeline progress indicator
-│           ├── PlanView.tsx          # Step 6: synthesized plan with copy
+│           ├── PipelineTracker.tsx   # Race-track progress bar (inline in header)
+│           ├── PlanView.tsx          # Step 6: synthesized plan (tabbed layout, sticky footer)
 │           ├── PlanHistory.tsx       # Plan list / history view
 │           └── MarkdownContent.tsx   # react-markdown wrapper
 └── tests/                          # Test suite (pytest + pytest-asyncio)
@@ -106,7 +106,8 @@ zangetsu/
     ├── test_state_status.py        # PlanStatus enum values
     ├── test_state_transitions.py   # State machine valid/invalid transitions
     ├── test_state_negotiation.py   # Negotiation round tracking
-    └── test_transcript.py          # Transcript init, append, load, full flow
+    ├── test_transcript.py          # Transcript init, append, load, full flow
+    └── test_review_init.py         # Re-advise review init, transcript + base_plan_id
 ```
 
 ---
@@ -179,22 +180,35 @@ powered by the `POST /council/review` SSE endpoint.
 
 ### Re-advise from history
 
-When a user loads a previously saved plan from history and clicks "Re-advise":
+When a user loads a previously saved plan from history into the session and
+clicks "Re-advise":
 
 1. The frontend calls `POST /council/review/init` with the original plan's ID,
    description, and the user's feedback.
 2. The backend generates a **new plan_id** (fresh hex + slug), creates a
    **new transcript** with `status="review"` and `base_plan_id` pointing to
    the original plan, copies the original transcript's framer Q&A context,
-   and appends the feedback.
-3. The frontend then calls `POST /council/review` (SSE) with the new plan_id
-   and `base_plan_id`. Advisors re-run with feedback, synthesis produces
-   a new plan, and `save_plan()` persists it with `base_plan_id`.
-4. No plan file is created until synthesis completes -- the transcript alone
-   tracks the review session until advisors finish.
+   and appends the feedback. Returns the new plan_id, the original
+   `framed_question`, and the full `framed_requirement` structure.
+3. The frontend builds a context-rich prompt containing the full previous
+   framed requirement (type, title, stories, acceptance criteria, etc.)
+   plus the user's revision feedback, and opens the **framing flow**
+   (WebSocket `/ws/framer`). No advisors run at this point.
+4. The framer reviews the context, may ask clarifying questions, and
+   produces an updated `FramedRequirement`. The normal pipeline then
+   continues: confirm -> scan -> advise -> synthesize -> save plan.
+5. The plan saved at the end carries `base_plan_id` linking back to the
+   original. No plan file is created until synthesis completes.
 
 This creates a linked chain: each review plan points back to its base via
 `base_plan_id`, enabling future comparison between plan versions.
+
+### Home screen transcript loading
+
+The home input screen offers a "Load from transcript" option that lists
+recent transcripts. Clicking one loads the transcript's framer Q&A context
+into a new framing session, allowing the user to continue or revise
+previous work without starting from scratch.
 
 ---
 
@@ -318,7 +332,7 @@ state, advisor responses, context summary, and timestamps. Forgiving on load
 (returns None for missing/corrupt files). Supports `base_plan_id` for linking
 re-advise plans back to their original plan.
 
-### `transcript.py` (~165 lines)
+### `transcript.py` (~210 lines)
 Session transcript storage at `~/.code-council/transcripts/`. Records the
 running dialogue of a bankai session: original question, every framer exchange
 (question, answer, choices), and the final framed requirement. Files are keyed
@@ -329,6 +343,8 @@ by `plan_id` and rewritten on each append. Contains:
 - `append_framer_message()` -- appends a user or framer message
 - `set_framed_question()` -- records the final framed requirement text
 - `load_transcript()` -- loads transcript by plan_id (None if missing/corrupt)
+- `list_recent_transcripts()` -- lists recent transcripts with summary
+  metadata (plan_id, timestamp, question, status, message count)
 
 ### `utils.py` (~50 lines)
 Shared utilities used by both `cli.py` and `daemon.py`:
@@ -531,8 +547,8 @@ one per line, `#` comments supported).
 
 ## Test Suite
 
-16 test files (+ `conftest.py` with shared fixtures) using `FakeLLM` (no real
-API calls, 204 tests total). Run with `pytest`.
+17 test files (+ `conftest.py` with shared fixtures) using `FakeLLM` (no real
+API calls, 223 tests total). Run with `pytest`.
 
 | Test File | Coverage |
 |---|---|
@@ -552,6 +568,7 @@ API calls, 204 tests total). Run with `pytest`.
 | `test_transcript.py` | Init, append, load, full conversation flow |
 | `test_load_context.py` | Plan ID generation, context resolution, Q&A extraction, resume points |
 | `test_export_markdown.py` | Markdown conversion, humaniser skill loader, all plan sections |
+| `test_review_init.py` | Re-advise review init: transcript creation, base_plan_id linking, framer context copy, feedback append, no plan created, storage base_plan_id |
 
 ---
 

@@ -6,13 +6,13 @@ interface Props {
   advisorsTotal: number
 }
 
-const STAGES: { key: SessionStage; label: string }[] = [
-  { key: "framing", label: "Framing" },
-  { key: "confirming", label: "Review" },
-  { key: "scanning", label: "Scan" },
-  { key: "advising", label: "Advisors" },
-  { key: "synthesizing", label: "Synthesis" },
-  { key: "completed", label: "Plan" },
+const STAGES: { key: SessionStage; label: string; icon: string }[] = [
+  { key: "framing", label: "Frame", icon: "\u{1F3C1}" },      // flag
+  { key: "confirming", label: "Review", icon: "\u25C6" },      // diamond
+  { key: "scanning", label: "Scan", icon: "\u25C6" },
+  { key: "advising", label: "Advise", icon: "\u25C6" },
+  { key: "synthesizing", label: "Synth", icon: "\u25C6" },
+  { key: "completed", label: "Finish", icon: "\u{1F3C1}" },   // flag
 ]
 
 const STAGE_ORDER: Record<string, number> = {}
@@ -34,62 +34,90 @@ function stageStatus(
 export function PipelineTracker({ currentStage, advisorsDone, advisorsTotal }: Props) {
   if (currentStage === "idle") return null
 
+  const ci = STAGE_ORDER[currentStage] ?? 0
+  const total = STAGES.length - 1 // segments between checkpoints
+  const isError = currentStage === "error"
+  const isDone = currentStage === "completed"
+
+  // Progress percentage along the track
+  const progress = isDone ? 100 : isError ? ((ci / total) * 100) : (((ci + 0.5) / total) * 100)
+
   return (
-    <div className="flex items-center justify-center gap-1 py-4 px-4">
+    <div className="relative h-6">
+      {/* Track background */}
+      <div className="absolute left-0 right-0 top-[11px] h-[3px] rounded-full bg-surface-tertiary" />
+
+      {/* Filled track */}
+      <div
+        className={`absolute left-0 top-[11px] h-[3px] rounded-full transition-all duration-700 ease-out ${
+          isError ? "bg-red-500" : isDone ? "bg-green-500" : "bg-accent"
+        }`}
+        style={{ width: `${progress}%` }}
+      />
+
+      {/* Animated car/dot on the progress front */}
+      {!isDone && !isError && (
+        <div
+          className="absolute top-[5px] w-4 h-4 -ml-2 transition-all duration-700 ease-out"
+          style={{ left: `${progress}%` }}
+        >
+          <div className="w-4 h-4 rounded-full bg-accent shadow-[0_0_8px_rgba(99,102,241,0.5)]
+                          flex items-center justify-center animate-pulse">
+            <div className="w-1.5 h-1.5 rounded-full bg-white" />
+          </div>
+        </div>
+      )}
+
+      {/* Checkpoints */}
       {STAGES.map((stage, i) => {
         const status = stageStatus(stage.key, currentStage)
-        return (
-          <div key={stage.key} className="flex items-center">
-            {/* Stage indicator */}
-            <div className="flex flex-col items-center gap-1">
-              <div
-                className={`w-7 h-7 rounded-full flex items-center justify-center
-                            text-xs font-medium transition-colors ${
-                  status === "done"
-                    ? "bg-green-500 text-white"
-                    : status === "active"
-                      ? "bg-accent text-white"
-                      : "bg-surface-tertiary text-text-muted"
-                }`}
-              >
-                {status === "done" ? (
-                  "\u2713"
-                ) : status === "active" ? (
-                  <span className="animate-pulse-dot">{"\u2022"}</span>
-                ) : (
-                  <span className="text-[10px]">{i + 1}</span>
-                )}
-              </div>
-              <span
-                className={`text-[10px] ${
-                  status === "active"
-                    ? "text-accent font-medium"
-                    : status === "done"
-                      ? "text-green-600 dark:text-green-400"
-                      : "text-text-muted"
-                }`}
-              >
-                {stage.key === "advising" && status === "active"
-                  ? `${advisorsDone}/${advisorsTotal}`
-                  : stage.label}
-              </span>
-            </div>
+        const pct = (i / total) * 100
+        const label =
+          stage.key === "advising" && status === "active"
+            ? `${advisorsDone}/${advisorsTotal}`
+            : stage.label
 
-            {/* Connector line */}
-            {i < STAGES.length - 1 && (
-              <div
-                className={`w-6 h-px mx-1 ${
-                  stageStatus(STAGES[i + 1].key, currentStage) !== "pending"
-                    ? "bg-green-500"
-                    : status === "active"
-                      ? "bg-accent/30"
-                      : "bg-border"
-                }`}
-              />
-            )}
+        return (
+          <div
+            key={stage.key}
+            className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
+            style={{ left: `${pct}%` }}
+          >
+            {/* Checkpoint marker */}
+            <div
+              className={`w-[9px] h-[9px] rounded-full border-2 transition-colors mt-[7px] ${
+                status === "done"
+                  ? "bg-green-500 border-green-500"
+                  : status === "active"
+                    ? "bg-accent border-accent"
+                    : "bg-surface border-border"
+              }`}
+            />
+            {/* Label below */}
+            <span
+              className={`text-[9px] mt-1 whitespace-nowrap transition-colors ${
+                status === "active"
+                  ? "text-accent font-semibold"
+                  : status === "done"
+                    ? "text-green-600 dark:text-green-400"
+                    : "text-text-muted/50"
+              }`}
+            >
+              {label}
+            </span>
           </div>
         )
       })}
+
+      {/* Finish flag when done */}
+      {isDone && (
+        <div
+          className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
+          style={{ left: "100%" }}
+        >
+          <div className="w-[9px] h-[9px] rounded-full bg-green-500 border-2 border-green-500 mt-[7px]" />
+        </div>
+      )}
     </div>
   )
 }

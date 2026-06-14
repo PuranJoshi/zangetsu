@@ -935,6 +935,19 @@ async def get_plan(plan_id: str) -> dict:
     return data
 
 
+@app.get("/transcripts")
+async def list_transcripts(limit: int = 20) -> list:
+    """List recent transcripts (summary metadata only)."""
+    from code_council.config import get_settings
+    from code_council.transcript import list_recent_transcripts
+
+    settings = get_settings()
+    return list_recent_transcripts(
+        limit=limit,
+        transcript_dir=settings.transcript_path,
+    )
+
+
 @app.get("/transcripts/{plan_id}")
 async def get_transcript(plan_id: str) -> dict:
     """Get a full transcript by ID."""

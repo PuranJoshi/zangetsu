@@ -199,3 +199,13 @@ export interface PlanSummary {
   effort: string
   base_plan_id?: string | null
 }
+
+export interface TranscriptSummary {
+  plan_id: string
+  timestamp: string
+  question: string
+  status: string
+  base_plan_id?: string | null
+  has_framed_question: boolean
+  message_count: number
+}

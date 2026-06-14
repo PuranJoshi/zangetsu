@@ -68,6 +68,53 @@ export default function App() {
     [framer]
   )
 
+  const handleLoadTranscript = useCallback(
+    async (transcriptPlanId: string) => {
+      try {
+        const res = await fetch(`/api/transcripts/${transcriptPlanId}`)
+        if (!res.ok) return
+        const data = await res.json()
+
+        const question = data.question || ""
+        setRawDescription(question)
+
+        // Build context from the transcript for the framer
+        const parts: string[] = []
+        parts.push(`Original request: ${question}`)
+
+        // Include framer Q&A history
+        const messages = data.framer_messages || []
+        if (messages.length > 0) {
+          parts.push("")
+          parts.push("=== Previous Framing Conversation ===")
+          for (const msg of messages) {
+            const role = msg.role === "framer" ? "Framer" : "User"
+            parts.push(`${role}: ${msg.text}`)
+          }
+          parts.push("=== End Conversation ===")
+        }
+
+        if (data.framed_question) {
+          parts.push("")
+          parts.push(`Previous framed requirement: ${data.framed_question}`)
+        }
+
+        parts.push("")
+        parts.push("Please review the context above and continue framing. You may ask clarifying questions or produce the framed requirement directly.")
+
+        // Set the plan_id from the transcript so the pipeline links back
+        setPlanId(null)
+        setBasePlanId(transcriptPlanId)
+
+        setPhase("framing")
+        framer.startFraming(parts.join("\n"))
+      } catch (err) {
+        console.error("Failed to load transcript:", err)
+      }
+    },
+    [framer]
+  )
+
   // Watch for framer completion
   if (framer.status === "done" && framer.framedRequirement && phase === "framing") {
     setFramedRequirement(framer.framedRequirement)
@@ -89,50 +136,52 @@ export default function App() {
     [rawDescription, framer]
   )
 
+  const startAdvisors = useCallback(
+    (ctx: ProjectContext | null) => {
+      if (!framedRequirement) return
+
+      // If planId is already set (e.g. from re-advise init), reuse it.
+      // Otherwise generate a fresh one for a brand-new session.
+      let usePlanId = planId
+      if (!usePlanId) {
+        const id =
+          crypto.randomUUID?.().replace(/-/g, "").slice(0, 12) ||
+          Math.random().toString(36).slice(2, 14)
+        const slug = rawDescription
+          .replace(/[^a-zA-Z0-9\s]/g, "")
+          .trim()
+          .toLowerCase()
+          .split(/\s+/)
+          .slice(0, 4)
+          .join("-") || "plan"
+        usePlanId = `${id}-${slug}`
+        setPlanId(usePlanId)
+        setBasePlanId(usePlanId)
+        setReviewVersion(1)
+      }
+
+      setPhase("advising")
+      council.startCouncil(usePlanId, rawDescription, framedRequirement, ctx, basePlanId)
+    },
+    [framedRequirement, rawDescription, council, planId, basePlanId]
+  )
+
   const handleScanSkip = useCallback(() => {
     setProjectContext(null)
     startAdvisors(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [startAdvisors])
 
   const handleScanComplete = useCallback(() => {
     if (scanner.projectContext) {
       setProjectContext(scanner.projectContext)
       startAdvisors(scanner.projectContext)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanner.projectContext])
+  }, [scanner.projectContext, startAdvisors])
 
   // Watch for scan completion
   if (scanner.phase === "done" && phase === "scanning") {
     handleScanComplete()
   }
-
-  const startAdvisors = useCallback(
-    (ctx: ProjectContext | null) => {
-      if (!framedRequirement) return
-
-      const id =
-        crypto.randomUUID?.().replace(/-/g, "").slice(0, 12) ||
-        Math.random().toString(36).slice(2, 14)
-      const slug = rawDescription
-        .replace(/[^a-zA-Z0-9\s]/g, "")
-        .trim()
-        .toLowerCase()
-        .split(/\s+/)
-        .slice(0, 4)
-        .join("-") || "plan"
-      const fullPlanId = `${id}-${slug}`
-
-      setPlanId(fullPlanId)
-      setBasePlanId(fullPlanId)
-      setReviewVersion(1)
-      setPhase("advising")
-
-      council.startCouncil(fullPlanId, rawDescription, framedRequirement, ctx)
-    },
-    [framedRequirement, rawDescription, council]
-  )
 
   // Watch for council completion (from initial run or re-advise)
   if (council.session.stage === "completed" && phase === "advising") {
@@ -169,6 +218,7 @@ export default function App() {
           plan_id: newPlanId,
           base_plan_id: basePId,
           framed_question: framedQuestion,
+          framed_requirement: prevFramedReq,
         } = await res.json()
 
         // 2. Set up state for the new review pipeline.
@@ -178,18 +228,53 @@ export default function App() {
         setBasePlanId(basePId)
         setFramedRequirement(null)
 
-        // 3. Build a context-rich question for the framer:
-        //    original framed question + re-advise feedback.
-        const contextQuestion = framedQuestion
-          ? `Previous requirement:\n${framedQuestion}\n\nFeedback for revision:\n${feedback}`
-          : `${rawDescription}\n\nFeedback for revision:\n${feedback}`
+        // 3. Build a context-rich question for the framer including
+        //    the full structured requirement from the previous plan
+        //    so the framer has all context to revise from.
+        const parts: string[] = []
+        parts.push(`Original request: ${rawDescription}`)
+
+        if (prevFramedReq) {
+          parts.push("")
+          parts.push("=== Previous Framed Requirement ===")
+          parts.push(`Type: ${prevFramedReq.type}`)
+          parts.push(`Title: ${prevFramedReq.title}`)
+          parts.push(`Description: ${prevFramedReq.description}`)
+          if (prevFramedReq.acceptance_criteria?.length) {
+            parts.push(`Acceptance Criteria:\n${prevFramedReq.acceptance_criteria.map((ac: string) => `- ${ac}`).join("\n")}`)
+          }
+          if (prevFramedReq.assumptions?.length) {
+            parts.push(`Assumptions:\n${prevFramedReq.assumptions.map((a: string) => `- ${a}`).join("\n")}`)
+          }
+          if (prevFramedReq.out_of_scope?.length) {
+            parts.push(`Out of Scope:\n${prevFramedReq.out_of_scope.map((o: string) => `- ${o}`).join("\n")}`)
+          }
+          if (prevFramedReq.stories?.length) {
+            parts.push(`Stories (${prevFramedReq.stories.length}):`)
+            for (const story of prevFramedReq.stories) {
+              parts.push(`  - [${story.type}] ${story.title}: ${story.description}`)
+            }
+          }
+          parts.push("=== End Previous Requirement ===")
+        } else if (framedQuestion) {
+          parts.push("")
+          parts.push(`Previous framed question: ${framedQuestion}`)
+        }
+
+        parts.push("")
+        parts.push(`USER FEEDBACK FOR REVISION: ${feedback}`)
+        parts.push("")
+        parts.push("Please revise the requirement based on the feedback above. You may ask clarifying questions or produce the updated framed requirement directly.")
+
+        const contextQuestion = parts.join("\n")
 
         // 4. Transition to framing phase -- the framer will review
         //    and potentially ask new questions before proceeding.
         setPhase("framing")
         framer.startFraming(contextQuestion)
-      } catch {
+      } catch (err) {
         // If init fails, stay on the current plan view.
+        console.error("Re-advise init failed:", err)
       }
     },
     [basePlanId, rawDescription, framer]
@@ -204,11 +289,6 @@ export default function App() {
   // ---------------------------------------------------------------------------
   // Navigation: return to session vs new session
   // ---------------------------------------------------------------------------
-
-  const handleGoHome = useCallback(() => {
-    // If there's an active session, just navigate back to it without resetting
-    route.navigate("/")
-  }, [route])
 
   const handleNewSession = useCallback(() => {
     setPhase("input")
@@ -282,19 +362,33 @@ export default function App() {
 
   return (
     <>
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border">
+      {/* Header with inline pipeline tracker */}
+      <header className="flex items-center justify-between px-4 py-2.5 border-b border-border gap-4">
         <button
-          onClick={handleGoHome}
+          onClick={handleNewSession}
           className="text-sm font-semibold text-text-primary hover:text-accent
-                     transition-colors"
+                     transition-colors shrink-0"
         >
           Code Council
         </button>
-        <nav className="flex gap-4">
+
+        {/* Pipeline tracker -- race track, same width as content panels */}
+        {!isHistoryView && phase !== "input" && (
+          <div className="flex-1 min-w-0 flex justify-center">
+            <div className="w-full max-w-4xl px-6">
+              <PipelineTracker
+                currentStage={currentPipelineStage()}
+                advisorsDone={council.session.advisorResponses.length}
+                advisorsTotal={council.session.advisorNames.length || 6}
+              />
+            </div>
+          </div>
+        )}
+
+        <nav className="flex gap-4 shrink-0">
           {hasActiveSession && isHistoryView && (
             <button
-              onClick={handleGoHome}
+              onClick={() => route.navigate("/")}
               className="text-xs text-accent hover:text-accent/80 transition-colors"
             >
               Current Session
@@ -319,15 +413,6 @@ export default function App() {
         </nav>
       </header>
 
-      {/* Pipeline tracker (visible when in a session, not in history) */}
-      {!isHistoryView && phase !== "input" && (
-        <PipelineTracker
-          currentStage={currentPipelineStage()}
-          advisorsDone={council.session.advisorResponses.length}
-          advisorsTotal={council.session.advisorNames.length || 6}
-        />
-      )}
-
       {/* Main content area */}
       <main className="flex-1">
         {isHistoryView ? (
@@ -339,7 +424,7 @@ export default function App() {
           <>
             {/* Phase: Input */}
             {phase === "input" && (
-              <DescriptionInput onSubmit={handleDescriptionSubmit} />
+              <DescriptionInput onSubmit={handleDescriptionSubmit} onLoadTranscript={handleLoadTranscript} />
             )}
 
             {/* Phase: Framing */}

@@ -446,9 +446,10 @@ export function PlanView({
       <ImplementationTabs plan={plan} />
 
       {/* ================================================================
-          ACTION BAR
+          ACTION BAR (sticky footer)
           ================================================================ */}
-      <div className="border-t border-border pt-4 flex flex-col gap-3">
+      <div className="sticky bottom-0 bg-surface border-t border-border pt-3 pb-4 -mx-6 px-6
+                      flex flex-col gap-3 z-10">
         <div className="flex items-center justify-between flex-wrap gap-3">
           {/* Left: export + history load */}
           <div className="flex gap-2">

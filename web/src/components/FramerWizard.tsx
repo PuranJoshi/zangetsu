@@ -45,9 +45,9 @@ export function FramerWizard({ messages, status, error, onReply, onSkip }: Props
   }
 
   return (
-    <div className="flex flex-col gap-4 py-6 px-4 max-w-xl mx-auto w-full">
+    <div className="flex flex-col h-[calc(100vh-3.5rem)] max-w-4xl mx-auto w-full px-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center py-4 shrink-0">
         <h2 className="text-lg font-medium text-text-primary">
           Framing your request
         </h2>
@@ -63,38 +63,49 @@ export function FramerWizard({ messages, status, error, onReply, onSkip }: Props
         )}
       </div>
 
-      {/* Messages */}
-      <div className="flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-1">
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`rounded-lg px-4 py-3 text-sm animate-card-enter ${
-              msg.role === "user"
-                ? "bg-accent/10 text-text-primary ml-8 self-end"
-                : "bg-surface-secondary border border-border mr-8 self-start"
-            }`}
-          >
-            <MarkdownContent content={msg.text} />
-          </div>
-        ))}
+      {/* Messages -- fills available space, scrolls */}
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1 scroll-on-hover">
+        <div className="flex flex-col gap-3 py-2">
+          {messages.map((msg, i) => (
+            <div
+              key={i}
+              className={`rounded-lg px-4 py-3 text-sm animate-card-enter max-w-[80%] ${
+                msg.role === "user"
+                  ? "bg-accent/10 text-text-primary self-end"
+                  : "bg-surface-secondary border border-border self-start"
+              }`}
+            >
+              <MarkdownContent content={msg.text} />
+            </div>
+          ))}
 
-        {/* Thinking indicator */}
-        {status === "thinking" && (
-          <div className="bg-surface-secondary border border-border rounded-lg
-                          px-4 py-3 text-sm mr-8 self-start flex items-center gap-1">
-            <span className="animate-pulse-dot" style={{ animationDelay: "0ms" }}>.</span>
-            <span className="animate-pulse-dot" style={{ animationDelay: "200ms" }}>.</span>
-            <span className="animate-pulse-dot" style={{ animationDelay: "400ms" }}>.</span>
-            <span className="text-text-muted ml-1">Thinking</span>
+          {/* Thinking indicator */}
+          {status === "thinking" && (
+            <div className="bg-surface-secondary border border-border rounded-lg
+                            px-4 py-3 text-sm self-start flex items-center gap-1
+                            max-w-[80%]">
+              <span className="animate-pulse-dot" style={{ animationDelay: "0ms" }}>.</span>
+              <span className="animate-pulse-dot" style={{ animationDelay: "200ms" }}>.</span>
+              <span className="animate-pulse-dot" style={{ animationDelay: "400ms" }}>.</span>
+              <span className="text-text-muted ml-1">Thinking</span>
+            </div>
+          )}
+
+          <div ref={bottomRef} />
+        </div>
+      </div>
+
+      {/* Input area -- pinned at bottom */}
+      <div className="shrink-0 border-t border-border pt-3 pb-4 flex flex-col gap-2">
+        {/* Error */}
+        {error && (
+          <div className="text-sm text-red-500 bg-red-500/10 px-4 py-2 rounded-lg">
+            {error}
           </div>
         )}
 
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Choice buttons (when waiting for reply with choices) */}
-      {isWaiting && hasChoices && (
-        <div className="flex flex-col gap-2">
+        {/* Choice buttons */}
+        {isWaiting && hasChoices && (
           <div className="flex flex-wrap gap-2">
             {latestFramer!.choices!.map((choice, i) => (
               <button
@@ -109,76 +120,35 @@ export function FramerWizard({ messages, status, error, onReply, onSkip }: Props
               </button>
             ))}
           </div>
+        )}
 
-          {!showCustom ? (
+        {/* Text input -- always visible when waiting */}
+        {isWaiting && (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={customText}
+              onChange={(e) => setCustomText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={hasChoices ? "Or type your own answer..." : "Your answer..."}
+              className="flex-1 px-3 py-2 rounded-lg border border-border
+                         bg-surface text-sm text-text-primary
+                         placeholder:text-text-muted
+                         focus:outline-none focus:ring-2 focus:ring-accent/40"
+              autoFocus
+            />
             <button
-              onClick={() => setShowCustom(true)}
-              className="text-xs text-text-muted hover:text-accent
-                         self-start mt-1 transition-colors"
+              onClick={handleCustomSubmit}
+              disabled={!customText.trim()}
+              className="px-4 py-2 rounded-lg text-sm bg-accent text-white
+                         hover:opacity-90 disabled:opacity-40
+                         disabled:cursor-not-allowed transition-opacity"
             >
-              Type your own answer
+              Send
             </button>
-          ) : (
-            <div className="flex gap-2 mt-1">
-              <input
-                type="text"
-                value={customText}
-                onChange={(e) => setCustomText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Your answer..."
-                className="flex-1 px-3 py-2 rounded-lg border border-border
-                           bg-surface text-sm text-text-primary
-                           placeholder:text-text-muted
-                           focus:outline-none focus:ring-2 focus:ring-accent/40"
-                autoFocus
-              />
-              <button
-                onClick={handleCustomSubmit}
-                disabled={!customText.trim()}
-                className="px-4 py-2 rounded-lg text-sm bg-accent text-white
-                           hover:opacity-90 disabled:opacity-40
-                           disabled:cursor-not-allowed transition-opacity"
-              >
-                Send
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Open text input (when waiting but no choices) */}
-      {isWaiting && !hasChoices && (
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={customText}
-            onChange={(e) => setCustomText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Your answer..."
-            className="flex-1 px-3 py-2 rounded-lg border border-border
-                       bg-surface text-sm text-text-primary
-                       placeholder:text-text-muted
-                       focus:outline-none focus:ring-2 focus:ring-accent/40"
-            autoFocus
-          />
-          <button
-            onClick={handleCustomSubmit}
-            disabled={!customText.trim()}
-            className="px-4 py-2 rounded-lg text-sm bg-accent text-white
-                       hover:opacity-90 disabled:opacity-40
-                       disabled:cursor-not-allowed transition-opacity"
-          >
-            Send
-          </button>
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="text-sm text-red-500 bg-red-500/10 px-4 py-2 rounded-lg">
-          {error}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -149,6 +149,45 @@ def load_transcript(
     return _read_transcript(path)
 
 
+def list_recent_transcripts(
+    limit: int = 10,
+    transcript_dir: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Return summary metadata for the most recent transcripts.
+
+    Sorted by file modification time (most recent first).
+    Returns plan_id, timestamp, question (truncated), status,
+    base_plan_id, and whether a framed_question exists.
+    """
+    directory = transcript_dir or _DEFAULT_TRANSCRIPT_DIR
+    if not directory.is_dir():
+        return []
+
+    files = sorted(
+        directory.glob("transcript-*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+    results: list[dict[str, Any]] = []
+    for fp in files[:limit]:
+        try:
+            data = json.loads(fp.read_text())
+            results.append({
+                "plan_id": data.get("plan_id", ""),
+                "timestamp": data.get("timestamp", ""),
+                "question": (data.get("question", ""))[:120],
+                "status": data.get("status", "active"),
+                "base_plan_id": data.get("base_plan_id"),
+                "has_framed_question": data.get("framed_question") is not None,
+                "message_count": len(data.get("framer_messages", [])),
+            })
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Skipping unreadable transcript %s: %s", fp, exc)
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

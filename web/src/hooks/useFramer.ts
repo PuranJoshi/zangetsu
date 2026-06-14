@@ -22,6 +22,12 @@ export function useFramer(): UseFramerResult {
 
   const wsRef = useRef<WebSocket | null>(null)
   const pendingMsgIdRef = useRef<string | null>(null)
+  const messagesRef = useRef<FramerMessage[]>([])
+  const statusRef = useRef<FramerStatus>("idle")
+
+  // Keep refs in sync with state for use inside callbacks
+  messagesRef.current = messages
+  statusRef.current = status
 
   const startFraming = useCallback((question: string) => {
     // Close any existing connection
@@ -113,6 +119,34 @@ export function useFramer(): UseFramerResult {
 
   const skipFraming = useCallback(() => {
     if (!wsRef.current) return
+
+    // If still in "thinking" (LLM hasn't responded yet), the server
+    // can't read the skip message because it's blocked on the LLM call.
+    // Close the WebSocket and produce a fallback framed requirement
+    // client-side from the original user message.
+    const currentMessages = messagesRef.current
+    const userMsg = currentMessages.find((m) => m.role === "user")
+
+    if (statusRef.current === "thinking" || statusRef.current === "connecting") {
+      wsRef.current.close()
+      wsRef.current = null
+      const title = (userMsg?.text || "").slice(0, 80) || "Plan"
+      setFramedRequirement({
+        type: "story",
+        title,
+        description: userMsg?.text || "",
+        acceptance_criteria: [],
+        out_of_scope: [],
+        assumptions: [],
+        clarifications_needed: [],
+        stories: [],
+      })
+      setStatus("done")
+      return
+    }
+
+    // If in "chatting" (question already asked), send skip to the server
+    // so it can force-frame with the gathered context.
     setStatus("thinking")
     wsRef.current.send(JSON.stringify({ type: "skip" }))
   }, [])
