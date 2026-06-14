@@ -1,0 +1,130 @@
+import { useCallback, useRef, useState } from "react"
+import type { FramerMessage, FramerStatus, FramedRequirement } from "../types"
+
+export interface UseFramerResult {
+  messages: FramerMessage[]
+  status: FramerStatus
+  framedRequirement: FramedRequirement | null
+  requestId: string | null
+  error: string | null
+  startFraming: (question: string) => void
+  sendReply: (text: string) => void
+  skipFraming: () => void
+}
+
+export function useFramer(): UseFramerResult {
+  const [messages, setMessages] = useState<FramerMessage[]>([])
+  const [status, setStatus] = useState<FramerStatus>("idle")
+  const [framedRequirement, setFramedRequirement] =
+    useState<FramedRequirement | null>(null)
+  const [requestId, setRequestId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const wsRef = useRef<WebSocket | null>(null)
+  const pendingMsgIdRef = useRef<string | null>(null)
+
+  const startFraming = useCallback((question: string) => {
+    // Close any existing connection
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
+
+    setMessages([{ role: "user", text: question }])
+    setStatus("connecting")
+    setFramedRequirement(null)
+    setRequestId(null)
+    setError(null)
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/framer`)
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      setStatus("thinking")
+      ws.send(JSON.stringify({ type: "question", text: question }))
+    }
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+
+      switch (data.type) {
+        case "framer_question":
+          pendingMsgIdRef.current = data.msg_id
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "framer",
+              text: data.question,
+              choices: data.choices,
+              msgId: data.msg_id,
+            },
+          ])
+          setStatus("chatting")
+          break
+
+        case "framed":
+          setFramedRequirement(data.framed_requirement)
+          setRequestId(data.request_id)
+          setStatus("done")
+          break
+
+        case "error":
+          setError(data.message)
+          setStatus("error")
+          break
+
+        case "history":
+          // Resume support -- replay prior messages
+          if (data.messages) {
+            setMessages(data.messages)
+          }
+          break
+      }
+    }
+
+    ws.onclose = () => {
+      wsRef.current = null
+      setStatus((prev) =>
+        prev === "done" || prev === "error" ? prev : "error"
+      )
+    }
+
+    ws.onerror = () => {
+      setError("WebSocket connection failed")
+      setStatus("error")
+    }
+  }, [])
+
+  const sendReply = useCallback((text: string) => {
+    if (!wsRef.current || !pendingMsgIdRef.current) return
+
+    setMessages((prev) => [...prev, { role: "user", text }])
+    setStatus("thinking")
+
+    wsRef.current.send(
+      JSON.stringify({
+        type: "reply",
+        text,
+        msg_id: pendingMsgIdRef.current,
+      })
+    )
+  }, [])
+
+  const skipFraming = useCallback(() => {
+    if (!wsRef.current) return
+    setStatus("thinking")
+    wsRef.current.send(JSON.stringify({ type: "skip" }))
+  }, [])
+
+  return {
+    messages,
+    status,
+    framedRequirement,
+    requestId,
+    error,
+    startFraming,
+    sendReply,
+    skipFraming,
+  }
+}

@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+/*
+ * Code Council -- System-preference theme (light + dark)
+ *
+ * Uses Tailwind's `dark:` variant with `prefers-color-scheme`.
+ * Custom properties for things Tailwind can't handle inline.
+ */
+
+@theme {
+  --color-surface: #ffffff;
+  --color-surface-secondary: #f9fafb;
+  --color-surface-tertiary: #f3f4f6;
+  --color-border: #e5e7eb;
+  --color-text-primary: #111827;
+  --color-text-secondary: #6b7280;
+  --color-text-muted: #9ca3af;
+  --color-accent: #6366f1;
+  --color-accent-light: #e0e7ff;
+
+  /* Advisor colors */
+  --color-advisor-executor: #f97316;
+  --color-advisor-security: #ef4444;
+  --color-advisor-quality: #22c55e;
+  --color-advisor-business: #3b82f6;
+  --color-advisor-architect: #a855f7;
+  --color-advisor-risk: #eab308;
+
+  /* Fonts */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-surface: #0d1117;
+    --color-surface-secondary: #161b22;
+    --color-surface-tertiary: #21262d;
+    --color-border: #30363d;
+    --color-text-primary: #e6edf3;
+    --color-text-secondary: #8b949e;
+    --color-text-muted: #6e7681;
+    --color-accent: #818cf8;
+    --color-accent-light: rgba(129, 140, 248, 0.15);
+  }
+}
+
+/* Base resets */
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+}
+
+#root {
+  min-width: 960px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Markdown content inside advisor cards and plan sections */
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  margin: 0.75em 0 0.25em;
+  color: var(--color-text-primary);
+}
+.markdown-content h1 { font-size: 1.25rem; }
+.markdown-content h2 { font-size: 1.125rem; }
+.markdown-content h3 { font-size: 1rem; }
+.markdown-content p { margin: 0.5em 0; line-height: 1.6; }
+.markdown-content ul,
+.markdown-content ol { margin: 0.5em 0; padding-left: 1.5em; }
+.markdown-content li { margin: 0.25em 0; line-height: 1.5; }
+.markdown-content code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  background: var(--color-surface-tertiary);
+}
+.markdown-content pre {
+  padding: 0.75em 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  background: var(--color-surface-tertiary);
+  font-size: 0.85em;
+}
+.markdown-content pre code {
+  padding: 0;
+  background: none;
+}
+.markdown-content strong { color: var(--color-text-primary); }
+
+/* Pulse animation for "thinking" state */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+/* Card entrance animation */
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-card-enter {
+  animation: card-enter 0.3s ease-out;
+}
+
+/* Scrollbar hidden until hovered */
+.scroll-on-hover {
+  overflow-y: auto;
+  scrollbar-width: none;           /* Firefox */
+}
+.scroll-on-hover::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+.scroll-on-hover::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+.scroll-on-hover:hover {
+  scrollbar-width: thin;           /* Firefox */
+  scrollbar-color: var(--color-text-muted) transparent;
+}
+.scroll-on-hover:hover::-webkit-scrollbar-thumb {
+  background: var(--color-text-muted);
+}
