@@ -225,16 +225,24 @@ async def ws_framer(ws: WebSocket) -> None:
 
     Protocol:
       Client sends:
-        {"type": "question", "text": "...", "request_id": "..."}  (start)
+        {"type": "question", "text": "...", "plan_id": "...",
+         "request_id": "..."}                                      (start)
         {"type": "reply", "text": "...", "msg_id": "..."}         (answer)
         {"type": "skip"}                                           (skip)
 
       Server sends:
         {"type": "framer_question", "question": "...",
-         "choices": [...], "msg_id": "..."}                        (follow-up)
+         "choices": [...], "msg_id": "...", "plan_id": "..."}     (follow-up)
         {"type": "framed", "framed_requirement": {...},
-         "request_id": "..."}                                      (done)
+         "request_id": "...", "plan_id": "..."}                    (done)
         {"type": "error", "message": "..."}                        (error)
+
+    Transcript persistence:
+      The server creates a transcript at the start of the session
+      (using the ``plan_id`` from the initial message, or generating one).
+      Each framer question and user reply is appended. The final framed
+      requirement is recorded as ``framed_question``.  This ensures
+      web-UI sessions have the same transcript history as CLI sessions.
     """
     await ws.accept()
 
@@ -251,7 +259,59 @@ async def ws_framer(ws: WebSocket) -> None:
         return
 
     request_id: str | None = None
+    plan_id: str | None = None
     _msg_seq = 0
+
+    # Helper: persist framer question to transcript
+    def _save_framer_msg(question: str, msg_id: str, choices: list[str] | None = None):
+        if not plan_id:
+            return
+        try:
+            from code_council.transcript import append_framer_message
+            append_framer_message(
+                plan_id=plan_id,
+                role="framer",
+                text=question,
+                msg_id=msg_id,
+                choices=choices or None,
+                transcript_dir=settings.transcript_path,
+            )
+        except Exception as exc:
+            logger.warning("Failed to save framer message: %s", exc)
+
+    # Helper: persist user reply to transcript
+    def _save_user_msg(text: str, msg_id: str | None = None):
+        if not plan_id:
+            return
+        try:
+            from code_council.transcript import append_framer_message
+            append_framer_message(
+                plan_id=plan_id,
+                role="user",
+                text=text,
+                msg_id=msg_id,
+                transcript_dir=settings.transcript_path,
+            )
+        except Exception as exc:
+            logger.warning("Failed to save user message: %s", exc)
+
+    # Helper: persist the framed requirement text to transcript
+    def _save_framed(framed_req: dict):
+        if not plan_id:
+            return
+        try:
+            from code_council.transcript import set_framed_question
+            # Store a compact summary as framed_question
+            title = framed_req.get("title", "")
+            desc = framed_req.get("description", "")
+            summary = f"{title}: {desc}" if title else desc
+            set_framed_question(
+                plan_id=plan_id,
+                framed_question=summary[:500],
+                transcript_dir=settings.transcript_path,
+            )
+        except Exception as exc:
+            logger.warning("Failed to save framed question: %s", exc)
 
     try:
         # Wait for initial question
@@ -267,6 +327,12 @@ async def ws_framer(ws: WebSocket) -> None:
         user_question = init_data.get("text", "").strip()
         request_id = init_data.get("request_id") or uuid.uuid4().hex[:12]
 
+        # Accept or generate plan_id for transcript persistence
+        plan_id = init_data.get("plan_id") or None
+        if not plan_id:
+            from code_council.utils import generate_plan_id
+            plan_id = generate_plan_id(user_question)
+
         if not user_question:
             await ws.send_json({
                 "type": "error",
@@ -274,6 +340,18 @@ async def ws_framer(ws: WebSocket) -> None:
             })
             await ws.close()
             return
+
+        # Create transcript for this framing session
+        try:
+            from code_council.transcript import init_transcript
+            init_transcript(
+                plan_id=plan_id,
+                question=user_question,
+                transcript_dir=settings.transcript_path,
+            )
+            _save_user_msg(user_question)
+        except Exception as exc:
+            logger.warning("Failed to init transcript: %s", exc)
 
         # Build LLM conversation
         system_prompt = _WEB_FRAMER_SYSTEM.format(max_rounds=_MAX_FRAMER_ROUNDS)
@@ -292,47 +370,59 @@ async def ws_framer(ws: WebSocket) -> None:
             if parsed is None:
                 # Unparseable -- try to send as a plain question
                 _msg_seq += 1
+                _save_framer_msg(raw, str(_msg_seq))
                 await ws.send_json({
                     "type": "framer_question",
                     "question": raw,
                     "choices": [],
                     "msg_id": str(_msg_seq),
+                    "plan_id": plan_id,
                 })
             elif parsed.get("type") == "framed":
                 # Done -- send the framed requirement
                 framed_req = parsed.get("framed_requirement", parsed)
+                _save_framed(framed_req)
                 await ws.send_json({
                     "type": "framed",
                     "framed_requirement": framed_req,
                     "request_id": request_id,
+                    "plan_id": plan_id,
                 })
                 await ws.close()
                 return
             elif parsed.get("type") == "question":
                 _msg_seq += 1
+                q_text = parsed.get("question", "")
+                q_choices = parsed.get("choices", [])
+                _save_framer_msg(q_text, str(_msg_seq), q_choices)
                 await ws.send_json({
                     "type": "framer_question",
-                    "question": parsed.get("question", ""),
-                    "choices": parsed.get("choices", []),
+                    "question": q_text,
+                    "choices": q_choices,
                     "msg_id": str(_msg_seq),
+                    "plan_id": plan_id,
                 })
             else:
                 # Unknown type -- treat as done if it looks like a requirement
                 if "title" in parsed and "description" in parsed:
+                    _save_framed(parsed)
                     await ws.send_json({
                         "type": "framed",
                         "framed_requirement": parsed,
                         "request_id": request_id,
+                        "plan_id": plan_id,
                     })
                     await ws.close()
                     return
 
                 _msg_seq += 1
+                _save_framer_msg(str(parsed), str(_msg_seq))
                 await ws.send_json({
                     "type": "framer_question",
                     "question": str(parsed),
                     "choices": [],
                     "msg_id": str(_msg_seq),
+                    "plan_id": plan_id,
                 })
 
             # Wait for user reply
@@ -362,10 +452,12 @@ async def ws_framer(ws: WebSocket) -> None:
                             "clarifications_needed": [],
                             "stories": [],
                         }
+                    _save_framed(framed_req)
                     await ws.send_json({
                         "type": "framed",
                         "framed_requirement": framed_req,
                         "request_id": request_id,
+                        "plan_id": plan_id,
                     })
                     await ws.close()
                     return
@@ -376,6 +468,7 @@ async def ws_framer(ws: WebSocket) -> None:
                         continue
                     reply_text = reply_data.get("text", "").strip()
                     if reply_text:
+                        _save_user_msg(reply_text, pending_msg_id)
                         messages.append({"role": "user", "content": reply_text})
                     break
 
@@ -394,17 +487,19 @@ async def ws_framer(ws: WebSocket) -> None:
                 "clarifications_needed": [],
                 "stories": [],
             }
+        _save_framed(framed_req)
         await ws.send_json({
             "type": "framed",
             "framed_requirement": framed_req,
             "request_id": request_id,
+            "plan_id": plan_id,
         })
         await ws.close()
 
     except WebSocketDisconnect:
-        logger.info("Framer WS disconnected (request_id=%s)", request_id)
+        logger.info("Framer WS disconnected (plan_id=%s)", plan_id)
     except Exception as exc:
-        logger.exception("Framer WS error (request_id=%s)", request_id)
+        logger.exception("Framer WS error (plan_id=%s)", plan_id)
         try:
             await ws.send_json({"type": "error", "message": str(exc)})
             await ws.close()

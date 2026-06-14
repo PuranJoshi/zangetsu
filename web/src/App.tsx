@@ -120,6 +120,12 @@ export default function App() {
   // Watch for framer completion
   if (framer.status === "done" && framer.framedRequirement && phase === "framing") {
     setFramedRequirement(framer.framedRequirement)
+    // Use the plan_id from the framer transcript (server-generated)
+    // so the pipeline reuses the same ID for advisors + plan save.
+    if (framer.planId && !planId) {
+      setPlanId(framer.planId)
+      setBasePlanId((prev) => prev || framer.planId)
+    }
     setPhase("reviewing")
   }
 

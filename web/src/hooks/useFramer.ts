@@ -6,8 +6,10 @@ export interface UseFramerResult {
   status: FramerStatus
   framedRequirement: FramedRequirement | null
   requestId: string | null
+  /** plan_id returned by the server (transcript was created with this ID). */
+  planId: string | null
   error: string | null
-  startFraming: (question: string) => void
+  startFraming: (question: string, planId?: string) => void
   sendReply: (text: string) => void
   skipFraming: () => void
 }
@@ -18,6 +20,7 @@ export function useFramer(): UseFramerResult {
   const [framedRequirement, setFramedRequirement] =
     useState<FramedRequirement | null>(null)
   const [requestId, setRequestId] = useState<string | null>(null)
+  const [planId, setPlanId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
@@ -29,7 +32,7 @@ export function useFramer(): UseFramerResult {
   messagesRef.current = messages
   statusRef.current = status
 
-  const startFraming = useCallback((question: string) => {
+  const startFraming = useCallback((question: string, existingPlanId?: string) => {
     // Close any existing connection
     if (wsRef.current) {
       wsRef.current.close()
@@ -40,6 +43,7 @@ export function useFramer(): UseFramerResult {
     setStatus("connecting")
     setFramedRequirement(null)
     setRequestId(null)
+    setPlanId(null)
     setError(null)
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
@@ -48,7 +52,9 @@ export function useFramer(): UseFramerResult {
 
     ws.onopen = () => {
       setStatus("thinking")
-      ws.send(JSON.stringify({ type: "question", text: question }))
+      const msg: Record<string, string> = { type: "question", text: question }
+      if (existingPlanId) msg.plan_id = existingPlanId
+      ws.send(JSON.stringify(msg))
     }
 
     ws.onmessage = (event) => {
@@ -57,6 +63,7 @@ export function useFramer(): UseFramerResult {
       switch (data.type) {
         case "framer_question":
           pendingMsgIdRef.current = data.msg_id
+          if (data.plan_id) setPlanId(data.plan_id)
           setMessages((prev) => [
             ...prev,
             {
@@ -72,6 +79,7 @@ export function useFramer(): UseFramerResult {
         case "framed":
           setFramedRequirement(data.framed_requirement)
           setRequestId(data.request_id)
+          if (data.plan_id) setPlanId(data.plan_id)
           setStatus("done")
           break
 
@@ -156,6 +164,7 @@ export function useFramer(): UseFramerResult {
     status,
     framedRequirement,
     requestId,
+    planId,
     error,
     startFraming,
     sendReply,
