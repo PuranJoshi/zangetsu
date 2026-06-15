@@ -30,8 +30,13 @@ analyzed the change. They will disagree. Your job:
 - Group steps into small incremental **user stories** via `story` field.
   Each story = shippable, independently verifiable slice. Short labels
   (2-4 words). Earlier stories must not depend on later ones.
-- Acceptance criteria must be verifiable ("all tests pass", not "clean code").
-- Every acceptance criterion MUST map to at least one integration test.
+- Acceptance criteria must be **human-readable** and describe observable
+  behaviour from the user or system perspective. Use Given/When/Then or
+  plain English ("When a customer selects an entitled skin, the selection
+  succeeds and is audited"). NEVER write test file paths, test function
+  names, or code-level assertions as acceptance criteria.
+- Each acceptance criterion should map to at least one integration test,
+  but the criterion itself is the business behaviour, not the test.
   External dependencies (APIs, databases, LLMs) mocked or faked in tests.
 - **Test pyramid** -- The plan must follow the test pyramid. Many unit
   tests, fewer integration tests, minimal e2e. Do not duplicate coverage

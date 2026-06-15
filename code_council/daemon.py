@@ -1113,6 +1113,19 @@ async def council_feedback(req: CouncilFeedbackRequest) -> StreamingResponse:
             },
         )
 
+        # Persist council review results to the plan file
+        try:
+            from code_council.storage import save_council_review
+
+            save_council_review(
+                plan_id=plan_id,
+                advisor_reviews=advisor_reviews,
+                decision=decision,
+                settings=settings,
+            )
+        except Exception as exc:
+            logger.warning("Failed to save council review: %s", exc)
+
     return StreamingResponse(
         _generate(),
         media_type="text/event-stream",
@@ -1186,7 +1199,11 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
         # Build negotiation feedback from the accepted changes
         feedback_lines = [
             "The following changes were accepted during council review. "
-            "Incorporate them into the revised plan:\n"
+            "Incorporate them into the revised plan.\n\n"
+            "IMPORTANT: Acceptance criteria must be human-readable "
+            "behaviour descriptions (Given/When/Then or plain English). "
+            "Do NOT write test file paths, test function names, or "
+            "code-level assertions as acceptance criteria.\n"
         ]
         for i, change in enumerate(req.accepted_changes, 1):
             feedback_lines.append(f"{i}. {change}")

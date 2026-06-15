@@ -196,7 +196,9 @@ feedback loop on the final plan:
    **Dismiss** to discard the council review entirely.
 
 This is powered by:
-- `POST /council/feedback` (SSE) -- advisor review + decision gate
+- `POST /council/feedback` (SSE) -- advisor review + decision gate; results
+  are persisted to the plan JSON as a `council_review` field via
+  `save_council_review()` in `storage.py`
 - `POST /council/feedback/apply` (SSE) -- re-synthesize with accepted changes,
   saves plan with `council_reviewed` status
 
@@ -360,14 +362,18 @@ revised after council feedback). `COMPLETED` can transition to `COUNCIL_REVIEWED
 when the user applies accepted council recommendations. `VALID_TRANSITIONS`
 dict enforces legal state changes. Tracks negotiation rounds.
 
-### `storage.py` (~200 lines)
+### `storage.py` (~280 lines)
 JSON file-based plan persistence at `~/.code-council/plans/`. Filenames use
 `plan-<hex>-<slug>.json` for human readability; the stored `plan_id` is the
-hex-only identifier. Load and delete use glob matching (`plan-<hex>-*.json`)
-with backward-compat exact match for old-format files. Saves plan data, state,
+hex-only identifier. Council-reviewed plans are saved as separate
+`plan-<hex>-<slug>-revised.json` files so the original plan is preserved for
+comparison. Load and delete use glob matching (`plan-<hex>-*.json`) with
+backward-compat exact match for old-format files. Saves plan data, state,
 advisor responses, context summary, and timestamps. Forgiving on load (returns
 None for missing/corrupt files). Supports `base_plan_id` for linking re-advise
-plans back to their original plan.
+plans back to their original plan. `save_council_review()` appends council
+review results (advisor reviews + decision gate output) to the original plan
+file (not the revised variant) via read-modify-write.
 
 ### `transcript.py` (~230 lines)
 Session transcript storage at `~/.code-council/transcripts/`. Records the
@@ -476,6 +482,24 @@ advisor_responses: dict[str, str]
 context_summary: str
 framed_requirement: dict | null    # FramedRequirement.model_dump()
 base_plan_id: str | null           # original plan this review is based on (null for first plans)
+council_review: dict | null        # Added after council review (see below)
+```
+
+### Council review JSON (nested in plan)
+```
+council_review:
+  timestamp: str                   # ISO-8601 UTC when the review completed
+  advisor_reviews: dict[str, str]  # advisor_name -> review text ("PROCEED" or recommendations)
+  decision:                        # Decision gate output
+    verdict: str                   # "PROCEED" or "REVISE"
+    rationale: str
+    decisions: list                # per-recommendation decisions
+      - advisor: str
+        recommendation: str
+        priority: str              # HIGH | MEDIUM | LOW
+        decision: str              # ACCEPT | DEFER | DROP
+        reason: str
+    accepted_changes_summary: str
 ```
 
 ### On-disk transcript JSON (transcript.py)

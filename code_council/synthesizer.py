@@ -77,7 +77,7 @@ class IncrementalChange(BaseModel):
     """What this change does and why."""
 
     acceptance_criteria: list[str] = []
-    """Testable conditions (Given/When/Then or short assertions)."""
+    """Human-readable behaviour descriptions (Given/When/Then or plain English)."""
 
     steps: list[int] = []
     """Implementation step order numbers belonging to this change."""
@@ -182,12 +182,17 @@ def _synthesizer_prompt(
         '  "incremental_changes": [\n'
         '    {"type": "story", "title": "Set up database models",\n'
         '     "description": "Create the ORM models for user and session",\n'
-        '     "acceptance_criteria": ["User table exists with email, hash columns",\n'
-        '      "Session table has FK to user and expiry"],\n'
+        '     "acceptance_criteria": [\n'
+        '      "Given a new user registers, when the data is persisted, '
+        'then a user record exists with email and password hash",\n'
+        '      "Given a user logs in, when a session is created, '
+        'then the session references the user and has an expiry time"],\n'
         '     "steps": [1, 2]},\n'
         '    {"type": "task", "title": "Wire up API endpoint",\n'
         '     "description": "Add the REST handler for login",\n'
-        '     "acceptance_criteria": ["POST /login returns 200 with valid JWT"],\n'
+        '     "acceptance_criteria": [\n'
+        '      "When a user submits valid credentials to the login endpoint, '
+        'they receive an authentication token"],\n'
         '     "steps": [3]}\n'
         "  ],\n"
         '  "implementation_steps": [\n'
@@ -206,7 +211,8 @@ def _synthesizer_prompt(
         '  "quality_notes": "...",\n'
         '  "risk_assessment": "...",\n'
         '  "execution_strategy": "...",\n'
-        '  "acceptance_criteria": ["All tests pass"],\n'
+        '  "acceptance_criteria": [\n'
+        '    "A user can register, log in, and receive a session token"],\n'
         '  "estimated_effort": "M",\n'
         '  "risk_level": "MEDIUM"\n'
         "}\n"
@@ -219,8 +225,10 @@ def _synthesizer_prompt(
         "same label as the matching `incremental_changes` entry.\n"
         "- `incremental_changes` breaks the work into small, shippable "
         "JIRA-style tasks (story/task/bug). Each one should be independently "
-        "completable and verifiable. Include concrete acceptance criteria "
-        "(Given/When/Then or short assertions). The `steps` array lists "
+        "completable and verifiable. Include human-readable acceptance "
+        "criteria in Given/When/Then or plain English that describe "
+        "observable behaviour -- NOT test file paths, test function names, "
+        "or code-level assertions. The `steps` array lists "
         "which implementation_step order numbers belong to that change. "
         "Order them so earlier changes have no dependency on later ones.\n"
     )

@@ -78,7 +78,14 @@ def save_plan(
 
     ts = datetime.now(timezone.utc).isoformat()
     stem = plan_filename_stem(plan_id, change_description)
-    filename = f"plan-{stem}.json"
+
+    # Council-reviewed plans are saved as a separate file so the
+    # original plan is preserved for comparison.
+    if state_data.get("status") == "council_reviewed":
+        filename = f"plan-{stem}-revised.json"
+    else:
+        filename = f"plan-{stem}.json"
+
     path = plan_dir / filename
 
     data: dict[str, Any] = {
@@ -96,6 +103,66 @@ def save_plan(
 
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     logger.info("Plan saved to %s", path)
+    return path
+
+
+def save_council_review(
+    *,
+    plan_id: str,
+    advisor_reviews: dict[str, str],
+    decision: dict[str, Any],
+    settings: Settings | None = None,
+) -> Path | None:
+    """Append council review results to an existing plan file.
+
+    Called after the council feedback pipeline completes.  Reads the
+    existing plan JSON, adds a ``council_review`` key with the advisor
+    reviews and decision gate output, and writes it back.
+
+    Returns the file path, or None if the plan was not found or saving
+    is disabled.
+    """
+    settings = settings or get_settings()
+    if not settings.code_council_save_plans:
+        return None
+
+    plan_dir = settings.plan_path
+
+    # Find the original plan file (not the -revised variant).
+    # Council review results belong on the original plan that was reviewed.
+    path: Path | None = None
+    exact = plan_dir / f"plan-{plan_id}.json"
+    if exact.is_file():
+        path = exact
+    else:
+        matches = list(plan_dir.glob(f"plan-{plan_id}-*.json"))
+        # Prefer non-revised files
+        non_revised = [m for m in matches if not m.stem.endswith("-revised")]
+        if non_revised:
+            non_revised.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            path = non_revised[0]
+        elif matches:
+            matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            path = matches[0]
+
+    if path is None:
+        logger.warning("Cannot save council review: plan %s not found", plan_id)
+        return None
+
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Cannot read plan %s for council review update: %s", plan_id, exc)
+        return None
+
+    data["council_review"] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "advisor_reviews": advisor_reviews,
+        "decision": decision,
+    }
+
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    logger.info("Council review saved to %s", path)
     return path
 
 
@@ -181,6 +248,7 @@ def list_recent_plans(
                     "risk_level": data.get("plan", {}).get("risk_level", ""),
                     "effort": data.get("plan", {}).get("estimated_effort", ""),
                     "base_plan_id": data.get("base_plan_id"),
+                    "has_council_review": "council_review" in data,
                 }
             )
         except (json.JSONDecodeError, OSError) as exc:
