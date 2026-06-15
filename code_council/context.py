@@ -746,6 +746,10 @@ def generate_context_prompt(
 Analyze this repository and produce a JSON object that captures the project
 context needed for planning the change described below.
 
+**Token budget:** This JSON will be injected into downstream LLM prompts. \
+Keep the total output as compact as possible without losing critical \
+information. Prefer concise content over exhaustive dumps.
+
 ## Change Being Planned
 
 {change_description}
@@ -791,7 +795,8 @@ no explanation, no commentary) matching this exact schema:
 ## Rules
 
 ### directory_tree
-- Indented tree like the `tree` command (2 or 4 space indent).
+- Indented tree like the `tree` command (2-space indent preferred for \
+compactness).
 - Max depth: 4 levels.
 - **Skip entirely:** .git, node_modules, __pycache__, .venv, venv, \
 .mypy_cache, .pytest_cache, .ruff_cache, dist, build, .next, .nuxt, \
@@ -810,6 +815,11 @@ Dockerfile, docker-compose.yml, requirements.txt.
 secret, credential, password, token, private_key, service_account, \
 keystore, .pem, .key, .p12, .jks.
 - Skip any file larger than 50 KB.
+- **Token optimisation:** For large config files (e.g. package.json \
+with many dependencies), include only the sections relevant to \
+project structure (scripts, name, main fields) and omit the full \
+dependency list if it exceeds 30 entries -- replace with a count \
+(e.g. `"dependencies": "... (47 packages, see file)"`).
 
 ### relevant_files
 - Pick 15-20 source files most relevant to the planned change above.
@@ -823,6 +833,12 @@ dependencies.
 - Do NOT include any file larger than 50 KB or any dotfile (except \
 safe dotfiles listed above).
 - Include the FULL content of each file as the value string.
+- **Token optimisation:** For very large files (>200 lines), you may \
+truncate sections that are clearly unrelated to the planned change \
+(e.g. unrelated route handlers, unrelated model definitions) and \
+replace them with a `// ... (N lines omitted: <brief reason>)` marker. \
+Always keep imports, class/function signatures, and the sections \
+relevant to the change.
 
 ### code_comments
 - For each file in relevant_files, extract significant comments and \
@@ -837,6 +853,10 @@ notes, warnings about edge cases or known issues.
 understand what the comment refers to (e.g. prefix with the function \
 or class name if it's a docstring).
 - If a file has no significant comments, omit it from code_comments.
+- **Token optimisation:** Do NOT duplicate information already visible \
+in the relevant_files content. Only extract comments that add context \
+beyond what the code itself communicates. Keep each comment concise -- \
+one line where possible.
 
 ### test_patterns
 - Detect the test framework from config files.
@@ -846,6 +866,18 @@ or class name if it's a docstring).
 
 ### summary
 - 1-2 sentences: what the project does, primary language/framework, \
-and architecture style (monolith, microservices, CLI, library, etc)."""
+and architecture style (monolith, microservices, CLI, library, etc).
+
+## Token Optimisation Reminder
+
+This JSON is consumed by multiple LLM advisors in parallel. Every \
+token counts. Prefer:
+- Compact indentation (2-space, minimal whitespace in JSON)
+- Truncating unrelated code sections with markers instead of full dumps
+- Omitting empty or default fields entirely
+- Keeping comments in code_comments concise (one line each where possible)
+- Not duplicating information across fields (e.g. if a comment is \
+visible in relevant_files content, do not repeat it in code_comments \
+unless it adds extra context)"""
 
     return prompt
