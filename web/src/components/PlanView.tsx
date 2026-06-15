@@ -22,6 +22,12 @@ interface Props {
   councilFeedback?: CouncilFeedbackState | null
   /** Whether a council review is in progress. */
   isCouncilReviewing?: boolean
+  /** Called when the user applies accepted council changes. */
+  onApplyCouncilChanges?: (acceptedChanges: string[]) => void
+  /** Called when the user dismisses the council review. */
+  onDismissCouncilReview?: () => void
+  /** Whether council changes are being applied (re-synthesizing). */
+  isApplyingCouncilChanges?: boolean
 }
 
 // ── Collapsible panel ──────────────────────────────────────────────────────
@@ -320,6 +326,7 @@ export function PlanView({
   plan, duration, onReAdvise, onReFrame, isReviewing,
   onBack, onLoadIntoSession,
   onCouncilReview, councilFeedback, isCouncilReviewing,
+  onApplyCouncilChanges, onDismissCouncilReview, isApplyingCouncilChanges,
 }: Props) {
   const [copied, setCopied] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
@@ -457,7 +464,12 @@ export function PlanView({
           COUNCIL REVIEW (advisor feedback + decision gate)
           ================================================================ */}
       {councilFeedback && councilFeedback.stage !== "idle" && (
-        <CouncilReviewPanel feedback={councilFeedback} />
+        <CouncilReviewPanel
+          feedback={councilFeedback}
+          onApply={onApplyCouncilChanges}
+          onDismiss={onDismissCouncilReview}
+          isApplying={isApplyingCouncilChanges}
+        />
       )}
 
       {/* ================================================================

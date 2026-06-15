@@ -17,11 +17,12 @@ class TestPlanStatus:
         assert PlanStatus.FRAMING == "framing"
 
     def test_all_statuses_defined(self) -> None:
-        """All 9 states should be defined. If you add a new state,
+        """All 10 states should be defined. If you add a new state,
         add it to this set -- the test will remind you."""
         expected = {
             "framing", "drafting", "proposed", "reviewing",
             "agreed", "executing", "completed", "rejected", "stalled",
+            "council_reviewed",
         }
         actual = {s.value for s in PlanStatus}
         assert actual == expected

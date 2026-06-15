@@ -38,6 +38,7 @@ class PlanStatus(str, Enum):
         FRAMING -> DRAFTING -> PROPOSED -> REVIEWING -> AGREED -> EXECUTING -> COMPLETED
 
     REVIEWING can also branch to DRAFTING (re-plan), REJECTED, or STALLED.
+    COMPLETED can transition to COUNCIL_REVIEWED (after council feedback applied).
     REJECTED and STALLED can restart to FRAMING.
     """
 
@@ -50,6 +51,7 @@ class PlanStatus(str, Enum):
     COMPLETED = "completed"     # Implementation finished
     REJECTED = "rejected"       # AI tool rejected and max rounds exceeded
     STALLED = "stalled"         # Needs human intervention
+    COUNCIL_REVIEWED = "council_reviewed"  # Plan revised after council review
 
 
 # Valid transitions: from_state -> set of allowed to_states.
@@ -69,7 +71,8 @@ VALID_TRANSITIONS: dict[PlanStatus, set[PlanStatus]] = {
     },
     PlanStatus.AGREED:    {PlanStatus.EXECUTING},
     PlanStatus.EXECUTING: {PlanStatus.COMPLETED},
-    PlanStatus.COMPLETED: set(),                     # terminal -- nowhere to go
+    PlanStatus.COMPLETED: {PlanStatus.COUNCIL_REVIEWED},  # can be council-reviewed
+    PlanStatus.COUNCIL_REVIEWED: {PlanStatus.EXECUTING, PlanStatus.REVIEWING},  # proceed or revise again
     PlanStatus.REJECTED:  {PlanStatus.FRAMING},      # can restart from scratch
     PlanStatus.STALLED:   {PlanStatus.FRAMING},      # can restart from scratch
 }

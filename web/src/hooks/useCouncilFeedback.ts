@@ -5,12 +5,23 @@ import type {
   CouncilDecision,
   CouncilFeedbackStage,
   CouncilFeedbackState,
+  FramedRequirement,
+  ProjectContext,
 } from "../types"
 
 export interface UseCouncilFeedbackResult {
   state: CouncilFeedbackState
   isRunning: boolean
+  isApplying: boolean
   requestFeedback: (planId: string, plan: ChangePlan) => Promise<void>
+  applyChanges: (
+    planId: string,
+    changeDescription: string,
+    framedRequirement: FramedRequirement,
+    acceptedChanges: string[],
+    projectContext?: ProjectContext | null,
+    basePlanId?: string | null
+  ) => Promise<ChangePlan | null>
   reset: () => void
 }
 
@@ -26,6 +37,7 @@ function initialState(): CouncilFeedbackState {
 export function useCouncilFeedback(): UseCouncilFeedbackResult {
   const [state, setState] = useState<CouncilFeedbackState>(initialState())
   const [isRunning, setIsRunning] = useState(false)
+  const [isApplying, setIsApplying] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   const requestFeedback = useCallback(
@@ -158,11 +170,116 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
     }
   }
 
+  const applyChanges = useCallback(
+    async (
+      planId: string,
+      changeDescription: string,
+      framedRequirement: FramedRequirement,
+      acceptedChanges: string[],
+      projectContext?: ProjectContext | null,
+      basePlanId?: string | null
+    ): Promise<ChangePlan | null> => {
+      if (abortRef.current) {
+        abortRef.current.abort()
+      }
+
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      setIsApplying(true)
+      let resultPlan: ChangePlan | null = null
+
+      try {
+        const response = await fetch("/api/council/feedback/apply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            plan_id: planId,
+            change_description: changeDescription,
+            framed_requirement: framedRequirement,
+            accepted_changes: acceptedChanges,
+            project_context: projectContext ?? null,
+            base_plan_id: basePlanId ?? null,
+          }),
+          signal: controller.signal,
+        })
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}))
+          throw new Error(errData.error || `HTTP ${response.status}`)
+        }
+
+        const reader = response.body?.getReader()
+        if (!reader) throw new Error("No response body")
+
+        const decoder = new TextDecoder()
+        let buffer = ""
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split("\n")
+          buffer = lines.pop() || ""
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue
+            const jsonStr = line.slice(6).trim()
+            if (!jsonStr) continue
+
+            try {
+              const event = JSON.parse(jsonStr) as {
+                stage: string
+                status: string
+                data?: Record<string, unknown>
+              }
+              // Capture the new plan from synthesis/completed
+              if (
+                event.stage === "synthesis" &&
+                event.status === "completed" &&
+                event.data?.plan
+              ) {
+                resultPlan = event.data.plan as ChangePlan
+              }
+              if (event.stage === "session" && event.status === "error") {
+                throw new Error(
+                  (event.data?.message as string) || "Apply error"
+                )
+              }
+            } catch (e) {
+              if (e instanceof Error && e.message !== "Apply error") {
+                // Ignore JSON parse errors
+              } else {
+                throw e
+              }
+            }
+          }
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") return null
+        setState((prev) => ({
+          ...prev,
+          stage: "error",
+          error: err instanceof Error ? err.message : "Unknown error",
+        }))
+        return null
+      } finally {
+        setIsApplying(false)
+        abortRef.current = null
+      }
+
+      return resultPlan
+    },
+    []
+  )
+
   const reset = useCallback(() => {
     if (abortRef.current) abortRef.current.abort()
     setState(initialState())
     setIsRunning(false)
+    setIsApplying(false)
   }, [])
 
-  return { state, isRunning, requestFeedback, reset }
+  return { state, isRunning, isApplying, requestFeedback, applyChanges, reset }
 }

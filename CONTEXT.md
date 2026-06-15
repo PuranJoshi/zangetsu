@@ -193,10 +193,19 @@ feedback loop on the final plan:
    recommendations and decides for each: `ACCEPT`, `DEFER`, or `DROP`.
    Not all recommendations make sense -- the decision gate is opinionated.
 3. The result is displayed as a panel on the plan view: advisor reviews,
-   then the final verdict (`PROCEED` or `REVISE`) with accepted changes.
+   then the final verdict (`PROCEED` or `REVISE`) with decision cards.
+4. **User override** -- The user can manually override any decision via
+   dropdown selectors on each recommendation card (ACCEPT/DEFER/DROP),
+   regardless of what the decision gate suggested.
+5. **Apply & Re-plan** -- The user clicks "Apply N changes & re-plan" to
+   re-run advisors with the accepted changes as feedback, then re-synthesize.
+   The new plan is saved with `council_reviewed` status. The user can also
+   **Dismiss** to discard the council review entirely.
 
-This is powered by `POST /council/feedback` (SSE) which calls
-`review_plan()` and `decide_changes()` in `advisors.py`.
+This is powered by:
+- `POST /council/feedback` (SSE) -- advisor review + decision gate
+- `POST /council/feedback/apply` (SSE) -- re-synthesize with accepted changes,
+  saves plan with `council_reviewed` status
 
 ### Re-advise from history
 
@@ -346,11 +355,13 @@ Plan synthesis -- Phase 4. Takes all advisor responses and produces a single
 implementation steps, notes from each perspective, acceptance criteria,
 effort estimate (S/M/L/XL), and risk level (LOW/MEDIUM/HIGH).
 
-### `state.py` (156 lines)
-Plan state machine with 9 states:
+### `state.py` (~160 lines)
+Plan state machine with 10 states:
 `FRAMING -> DRAFTING -> PROPOSED -> REVIEWING -> AGREED -> EXECUTING -> COMPLETED`
-(plus `REJECTED` and `STALLED` recovery paths). `VALID_TRANSITIONS` dict
-enforces legal state changes. Tracks negotiation rounds.
+(plus `REJECTED`, `STALLED` recovery paths, and `COUNCIL_REVIEWED` for plans
+revised after council feedback). `COMPLETED` can transition to `COUNCIL_REVIEWED`
+when the user applies accepted council recommendations. `VALID_TRANSITIONS`
+dict enforces legal state changes. Tracks negotiation rounds.
 
 ### `storage.py` (~200 lines)
 JSON file-based plan persistence at `~/.code-council/plans/`. Filenames use
@@ -560,8 +571,10 @@ one per line, `#` comments supported).
 2. **Self-describing skill files** -- Advisors defined by `.md` files with YAML
    frontmatter. Adding an advisor = dropping a file. No code changes needed.
 
-3. **Explicit state machine** -- `VALID_TRANSITIONS` dict makes illegal state
-   changes unrepresentable. Raises `ValueError` on bad transitions.
+3. **Explicit state machine** -- `VALID_TRANSITIONS` dict (10 states) makes
+   illegal state changes unrepresentable. Raises `ValueError` on bad
+   transitions. Includes `COUNCIL_REVIEWED` for plans revised after council
+   feedback.
 
 4. **Three-layer file safety** -- (1) dotfiles never read, (2) credential
    patterns flagged as sensitive, (3) only user-approved files are read.
@@ -589,7 +602,7 @@ one per line, `#` comments supported).
 ## Test Suite
 
 17 test files (+ `conftest.py` with shared fixtures) using `FakeLLM` (no real
-API calls, 227 tests total). Run with `pytest`.
+API calls, 231 tests total). Run with `pytest`.
 
 | Test File | Coverage |
 |---|---|
@@ -604,7 +617,7 @@ API calls, 227 tests total). Run with `pytest`.
 | `test_synthesizer.py` | synthesize_plan, JSON extraction, advisor response preservation |
 | `test_storage.py` | Save/load/list/delete plans, disabled mode, corrupt JSON |
 | `test_state_status.py` | PlanStatus enum values |
-| `test_state_transitions.py` | Happy path, invalid transitions, recovery paths |
+| `test_state_transitions.py` | Happy path, invalid transitions, council review transitions, recovery paths |
 | `test_state_negotiation.py` | can_negotiate boundary, round recording |
 | `test_transcript.py` | Init, append, load, full conversation flow |
 | `test_load_context.py` | Plan ID generation, slugify, plan_filename_stem, context resolution, Q&A extraction, resume points |

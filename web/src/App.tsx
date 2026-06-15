@@ -376,6 +376,30 @@ export default function App() {
     councilFeedback.requestFeedback(planId, council.session.plan)
   }, [council.session.plan, planId, councilFeedback])
 
+  const handleApplyCouncilChanges = useCallback(
+    async (acceptedChanges: string[]) => {
+      if (!planId || !framedRequirement) return
+      const newPlan = await councilFeedback.applyChanges(
+        planId,
+        rawDescription,
+        framedRequirement,
+        acceptedChanges,
+        projectContext,
+        basePlanId,
+      )
+      if (newPlan) {
+        // Replace the current plan with the council-reviewed one
+        council.loadFromPlan(newPlan)
+        councilFeedback.reset()
+      }
+    },
+    [planId, rawDescription, framedRequirement, projectContext, basePlanId, councilFeedback, council]
+  )
+
+  const handleDismissCouncilReview = useCallback(() => {
+    councilFeedback.reset()
+  }, [councilFeedback])
+
   // ---------------------------------------------------------------------------
   // Navigation: return to session vs new session
   // ---------------------------------------------------------------------------
@@ -611,6 +635,9 @@ export default function App() {
                 onCouncilReview={handleCouncilReview}
                 councilFeedback={councilFeedback.state}
                 isCouncilReviewing={councilFeedback.isRunning}
+                onApplyCouncilChanges={handleApplyCouncilChanges}
+                onDismissCouncilReview={handleDismissCouncilReview}
+                isApplyingCouncilChanges={councilFeedback.isApplying}
               />
             )}
           </>

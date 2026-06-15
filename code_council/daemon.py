@@ -95,6 +95,20 @@ class CouncilFeedbackRequest(BaseModel):
     plan_data: dict[str, Any]
 
 
+class CouncilApplyRequest(BaseModel):
+    """Apply user-approved council recommendations and re-synthesize.
+
+    The user reviews the decision gate output, overrides decisions as
+    needed, and submits only the accepted changes for re-synthesis.
+    """
+    plan_id: str
+    change_description: str
+    framed_requirement: dict[str, Any]
+    project_context: dict[str, Any] | None = None
+    accepted_changes: list[str]    # list of recommendation text strings to apply
+    base_plan_id: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
@@ -996,6 +1010,155 @@ async def council_feedback(req: CouncilFeedbackRequest) -> StreamingResponse:
         yield _sse_event("feedback", "decision", {
             "decision": decision,
             "advisor_reviews": advisor_reviews,
+        })
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# SSE: apply council feedback (re-synthesize with accepted changes)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/council/feedback/apply")
+async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
+    """Re-run advisors with accepted council changes as feedback, then
+    re-synthesize.  The resulting plan is saved with status
+    ``council_reviewed``.
+
+    SSE events follow the same pattern as ``/council/stream``:
+        session/started, advisors/started, advisor/completed,
+        synthesis/started, synthesis/completed, session/completed
+    """
+    try:
+        from code_council.config import get_settings
+        from code_council.llm import get_llm
+
+        settings = get_settings()
+        settings.require_langdock()
+        llm = get_llm(settings)
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(exc)},
+        )
+
+    async def _generate():
+        from code_council.advisors import run_advisors, discover_advisor_skills
+        from code_council.context import ProjectContext
+        from code_council.synthesizer import synthesize_plan
+        from code_council.framer import FramedRequirement
+
+        plan_id = req.plan_id
+        change_description = req.change_description
+
+        # Parse framed requirement
+        try:
+            framed = FramedRequirement(**req.framed_requirement)
+        except Exception as exc:
+            yield _sse_event("session", "error", {
+                "message": f"Invalid framed requirement: {exc}",
+            })
+            return
+
+        # Build project context
+        if req.project_context:
+            try:
+                ctx = ProjectContext(**req.project_context)
+            except Exception:
+                ctx = ProjectContext(project_path="(none)")
+        else:
+            ctx = ProjectContext(project_path="(none)")
+
+        # Build negotiation feedback from the accepted changes
+        feedback_lines = [
+            "The following changes were accepted during council review. "
+            "Incorporate them into the revised plan:\n"
+        ]
+        for i, change in enumerate(req.accepted_changes, 1):
+            feedback_lines.append(f"{i}. {change}")
+        negotiation_feedback = "\n".join(feedback_lines)
+
+        yield _sse_event("session", "started", {"plan_id": plan_id})
+
+        # Discover advisor names
+        skills = discover_advisor_skills()
+        advisor_names = [s.display_name for s in skills]
+        yield _sse_event("advisors", "started", {"advisor_names": advisor_names})
+
+        # Re-run advisors with council feedback
+        t0 = time.monotonic()
+        try:
+            responses, params, timing = await run_advisors(
+                change_description=change_description,
+                context=ctx,
+                llm=llm,
+                plan_id=plan_id,
+                temperature_spread=settings.code_council_advisor_temperature_spread,
+                negotiation_feedback=negotiation_feedback,
+            )
+        except Exception as exc:
+            yield _sse_event("session", "error", {
+                "message": f"Advisor error: {exc}",
+            })
+            return
+
+        for name, response in responses.items():
+            yield _sse_event("advisor", "completed", {
+                "name": name,
+                "response": response,
+            })
+
+        # Re-synthesize
+        yield _sse_event("synthesis", "started", {})
+
+        try:
+            plan = await synthesize_plan(
+                change_description=change_description,
+                advisor_responses=responses,
+                context=ctx,
+                plan_id=plan_id,
+                llm=llm,
+            )
+        except Exception as exc:
+            yield _sse_event("session", "error", {
+                "message": f"Synthesis error: {exc}",
+            })
+            return
+
+        yield _sse_event("synthesis", "completed", {
+            "plan": plan.model_dump(),
+        })
+
+        # Save with council_reviewed status
+        try:
+            from code_council.storage import save_plan
+            save_plan(
+                plan_id=plan_id,
+                change_description=change_description,
+                plan_data=plan.model_dump(),
+                state_data={"status": "council_reviewed"},
+                advisor_responses=responses,
+                context_summary=ctx.summary or "",
+                framed_requirement=framed.model_dump(),
+                base_plan_id=req.base_plan_id,
+                settings=settings,
+            )
+        except Exception as exc:
+            logger.warning("Failed to save council-reviewed plan: %s", exc)
+
+        total_duration = round(time.monotonic() - t0, 3)
+        yield _sse_event("session", "completed", {
+            "plan_id": plan_id,
+            "duration": total_duration,
         })
 
     return StreamingResponse(

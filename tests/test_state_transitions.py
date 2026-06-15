@@ -67,7 +67,7 @@ class TestInvalidTransitions:
         with pytest.raises(ValueError, match="Invalid transition"):
             state.transition(PlanStatus.REVIEWING)
 
-    def test_completed_is_terminal(self) -> None:
+    def test_completed_cannot_restart_to_framing(self) -> None:
         state = PlanState(plan_id="test")
         for s in [
             PlanStatus.DRAFTING, PlanStatus.PROPOSED, PlanStatus.REVIEWING,
@@ -108,6 +108,43 @@ class TestReviewingBranches:
         state = self._get_to_reviewing()
         state.transition(PlanStatus.STALLED)
         assert state.status == PlanStatus.STALLED
+
+
+class TestCouncilReview:
+    """COMPLETED plans can be council-reviewed, producing a revised plan."""
+
+    def _get_to_completed(self) -> PlanState:
+        """Helper to advance a plan to COMPLETED state."""
+        state = PlanState(plan_id="test")
+        for s in [
+            PlanStatus.DRAFTING, PlanStatus.PROPOSED, PlanStatus.REVIEWING,
+            PlanStatus.AGREED, PlanStatus.EXECUTING, PlanStatus.COMPLETED,
+        ]:
+            state.transition(s)
+        return state
+
+    def test_completed_to_council_reviewed(self) -> None:
+        state = self._get_to_completed()
+        state.transition(PlanStatus.COUNCIL_REVIEWED)
+        assert state.status == PlanStatus.COUNCIL_REVIEWED
+
+    def test_council_reviewed_can_proceed_to_executing(self) -> None:
+        state = self._get_to_completed()
+        state.transition(PlanStatus.COUNCIL_REVIEWED)
+        state.transition(PlanStatus.EXECUTING)
+        assert state.status == PlanStatus.EXECUTING
+
+    def test_council_reviewed_can_go_back_to_reviewing(self) -> None:
+        state = self._get_to_completed()
+        state.transition(PlanStatus.COUNCIL_REVIEWED)
+        state.transition(PlanStatus.REVIEWING)
+        assert state.status == PlanStatus.REVIEWING
+
+    def test_council_reviewed_cannot_skip_to_framing(self) -> None:
+        state = self._get_to_completed()
+        state.transition(PlanStatus.COUNCIL_REVIEWED)
+        with pytest.raises(ValueError, match="Invalid transition"):
+            state.transition(PlanStatus.FRAMING)
 
 
 class TestRecovery:
