@@ -58,13 +58,13 @@ zangetsu/
 │   ├── transcript.py              # Session transcript storage (framer Q&A log)
 │   └── skills/                     # Self-describing advisor skill files (Markdown + YAML frontmatter)
 │       ├── framer.md               # Requirements Framer skill definition
-│       ├── executor.md             # Executor Advisor -- how to implement step by step
+│       ├── executor.md             # Executor Advisor -- TDD, integration tests, test pyramid, coverage
 │       ├── security.md             # Security Advisor -- vulnerabilities, auth, data exposure
-│       ├── quality.md              # Quality & DX Advisor -- testability, readability
+│       ├── quality.md              # Quality & DX Advisor -- self-documenting code, tests as documentation
 │       ├── business.md             # Business & Impact Advisor -- value, scope, tough questions
 │       ├── architect.md            # Architect Advisor -- structure, patterns, coupling
 │       ├── risk.md                 # Risk Advisor -- what could break, rollback, blast radius
-│       └── synthesizer.md          # Plan Synthesizer -- merges all advisor outputs
+│       └── synthesizer.md          # Plan Synthesizer -- merges all advisor outputs, enforces quality principles
 ├── web/                             # React + TypeScript web UI (Vite + Tailwind)
 │   ├── package.json                 # Dependencies: react, react-markdown, tailwindcss
 │   ├── vite.config.ts               # Dev server (port 5176), proxy to API (port 8766)
@@ -374,14 +374,14 @@ The body contains the system prompt for that advisor.
 
 | File | Type | Temp Rank | Focus Area |
 |---|---|---|---|
-| `executor.md` | advisor | 0 | TDD, file change sequence, effort, lean incremental delivery |
+| `executor.md` | advisor | 0 | TDD, file change sequence, effort, lean incremental delivery, acceptance criteria in integration tests with mocks, test pyramid, code coverage verification |
 | `security.md` | advisor | 1 | Input validation, auth, OWASP, secrets |
-| `quality.md` | advisor | 2 | Testability, readability, error handling |
+| `quality.md` | advisor | 2 | Self-documenting code, tests as living documentation, testability, error handling |
 | `business.md` | advisor | 3 | Problem validation, value, opportunity cost |
 | `architect.md` | advisor | 4 | Module boundaries, coupling, existing patterns |
 | `risk.md` | advisor | 5 | Breaking changes, backward compat, rollback |
 | `framer.md` | framer | -- | Work classification, acceptance criteria |
-| `synthesizer.md` | synthesizer | -- | Conflict resolution, merged actionable plan |
+| `synthesizer.md` | synthesizer | -- | Conflict resolution, merged actionable plan, enforces self-documenting code, test pyramid, coverage |
 
 Adding a new advisor = dropping a new `.md` file in `skills/` with the correct
 frontmatter. No code changes needed.

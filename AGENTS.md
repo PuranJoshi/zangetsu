@@ -29,9 +29,9 @@ bankai "Want to build a cash deposit feature"
    before their content is read.
 
 3. **Advising** -- 6 advisors analyze the framed requirements in parallel:
-   - Executor (how to build it, step by step)
+   - Executor (how to build it, step by step, acceptance criteria in integration tests, test pyramid, coverage)
    - Security (vulnerabilities, auth, data exposure)
-   - Quality (testability, readability, DX)
+   - Quality (self-documenting code, tests as living documentation, testability)
    - Business (value, scope, tough questions)
    - Architect (structure, patterns, coupling)
    - Risk (what could break, rollback, blast radius)
