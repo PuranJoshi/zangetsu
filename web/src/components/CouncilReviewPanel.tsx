@@ -199,30 +199,7 @@ export function CouncilReviewPanel({
         <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
           Council Review
         </h3>
-        {stage === "reviewing" && (
-          <span className="flex items-center gap-0.5 text-xs text-accent">
-            <span className="animate-pulse-dot">.</span>
-            <span className="animate-pulse-dot" style={{ animationDelay: "200ms" }}>.</span>
-            <span className="animate-pulse-dot" style={{ animationDelay: "400ms" }}>.</span>
-            <span className="ml-1">Advisors reviewing plan...</span>
-          </span>
-        )}
-        {stage === "deciding" && (
-          <span className="flex items-center gap-0.5 text-xs text-amber-600 dark:text-amber-400">
-            <span className="animate-pulse-dot">.</span>
-            <span className="animate-pulse-dot" style={{ animationDelay: "200ms" }}>.</span>
-            <span className="animate-pulse-dot" style={{ animationDelay: "400ms" }}>.</span>
-            <span className="ml-1">Business & Architect deciding...</span>
-          </span>
-        )}
-        {isApplying && (
-          <span className="flex items-center gap-0.5 text-xs text-purple-600 dark:text-purple-400">
-            <span className="animate-pulse-dot">.</span>
-            <span className="animate-pulse-dot" style={{ animationDelay: "200ms" }}>.</span>
-            <span className="animate-pulse-dot" style={{ animationDelay: "400ms" }}>.</span>
-            <span className="ml-1">Applying changes & re-planning...</span>
-          </span>
-        )}
+        {/* Status indicators moved to sticky footer in App.tsx */}
       </div>
 
       {/* Advisor reviews as they stream in */}

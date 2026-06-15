@@ -375,20 +375,7 @@ export function PlanView({
         </div>
       </div>
 
-      {/* ── Re-advise in progress banner ── */}
-      {isReviewing && (
-        <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg
-                        bg-amber-500/10 border border-amber-500/20">
-          <span className="flex items-center gap-1 text-sm text-amber-600 dark:text-amber-400">
-            <span className="animate-pulse-dot">.</span>
-            <span className="animate-pulse-dot" style={{ animationDelay: "200ms" }}>.</span>
-            <span className="animate-pulse-dot" style={{ animationDelay: "400ms" }}>.</span>
-          </span>
-          <span className="text-sm text-amber-600 dark:text-amber-400 font-medium">
-            Re-advising -- new plan incoming
-          </span>
-        </div>
-      )}
+      {/* Re-advise banner moved to sticky footer in App.tsx */}
 
       {/* ── Metadata ── */}
       <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-text-muted -mt-2">

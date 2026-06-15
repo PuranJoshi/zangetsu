@@ -639,16 +639,7 @@ export default function App() {
                     }
                   />
 
-                  {council.session.stage === "synthesizing" && (
-                    <div className="text-center py-4">
-                      <span className="text-sm text-text-muted flex items-center justify-center gap-1">
-                        <span className="animate-pulse-dot">.</span>
-                        <span className="animate-pulse-dot" style={{ animationDelay: "200ms" }}>.</span>
-                        <span className="animate-pulse-dot" style={{ animationDelay: "400ms" }}>.</span>
-                        <span className="ml-1">Synthesizing plan...</span>
-                      </span>
-                    </div>
-                  )}
+                  {/* Synthesizing indicator moved to sticky footer */}
 
                   {council.session.stage === "error" && (
                     <ErrorDisplay
@@ -690,6 +681,43 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Sticky status footer -- shown during active operations */}
+      {(() => {
+        let statusText = ""
+        let colorClass = ""
+
+        if (councilFeedback.isApplying) {
+          statusText = "Applying changes & re-planning..."
+          colorClass = "text-purple-600 dark:text-purple-400 border-purple-500/20 bg-purple-500/5"
+        } else if (councilFeedback.state.stage === "deciding") {
+          statusText = "Business & Architect deciding..."
+          colorClass = "text-amber-600 dark:text-amber-400 border-amber-500/20 bg-amber-500/5"
+        } else if (councilFeedback.state.stage === "reviewing") {
+          statusText = "Advisors reviewing plan..."
+          colorClass = "text-accent border-accent/20 bg-accent/5"
+        } else if (phase === "done" && council.isRunning) {
+          statusText = "Re-advising -- new plan incoming"
+          colorClass = "text-amber-600 dark:text-amber-400 border-amber-500/20 bg-amber-500/5"
+        } else if (council.session.stage === "synthesizing") {
+          statusText = "Synthesizing plan..."
+          colorClass = "text-text-muted border-border bg-surface-secondary"
+        }
+
+        if (!statusText) return null
+
+        return (
+          <div className={`sticky bottom-0 z-10 border-t px-4 py-2.5 flex items-center
+                           justify-center gap-2 backdrop-blur-sm ${colorClass}`}>
+            <span className="flex items-center gap-1">
+              <span className="animate-pulse-dot">.</span>
+              <span className="animate-pulse-dot" style={{ animationDelay: "200ms" }}>.</span>
+              <span className="animate-pulse-dot" style={{ animationDelay: "400ms" }}>.</span>
+            </span>
+            <span className="text-sm font-medium">{statusText}</span>
+          </div>
+        )
+      })()}
     </>
   )
 }
