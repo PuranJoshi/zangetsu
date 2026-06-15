@@ -344,6 +344,18 @@ def _format_context(ctx: ProjectContext) -> str:
         for path, content in ctx.relevant_files.items():
             parts.append(f"\n**{path}:**\n```\n{content}\n```")
 
+    if ctx.code_comments:
+        parts.append("\n### Implementation Notes & Design Comments")
+        parts.append(
+            "Key comments, docstrings, and design rationale "
+            "extracted from the codebase:"
+        )
+        for path, comments in ctx.code_comments.items():
+            if comments:
+                parts.append(f"\n**{path}:**")
+                for comment in comments:
+                    parts.append(f"- {comment}")
+
     return "\n".join(parts)
 
 

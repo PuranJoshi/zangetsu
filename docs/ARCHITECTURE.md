@@ -450,6 +450,7 @@ config_files: dict[str, str]       # filename -> content
 relevant_files: dict[str, str]     # relative_path -> content
 test_patterns: TestPatterns        # test_framework, test_directory
 summary: str
+code_comments: dict[str, list[str]]  # relative_path -> significant comments
 ```
 
 ### `ChangePlan` (synthesizer.py)

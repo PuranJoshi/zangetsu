@@ -64,6 +64,14 @@ class ProjectContext(BaseModel):
     relevant_files: dict[str, str] = {}
     test_patterns: TestPatterns = TestPatterns()
     summary: str = ""
+    code_comments: dict[str, list[str]] = {}
+    """Extracted implementation comments, docstrings, and design notes.
+
+    Maps relative file paths to lists of significant comments found in
+    each file.  Focuses on comments that explain WHY (design decisions,
+    AI tool notes, known limitations, TODO/FIXME/HACK markers) rather
+    than WHAT (restating the code).
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -764,6 +772,12 @@ no explanation, no commentary) matching this exact schema:
   "relevant_files": {{
     "<relative/path/to/file>": "<full file contents as string>"
   }},
+  "code_comments": {{
+    "<relative/path/to/file>": [
+      "comment or docstring text",
+      "another significant comment"
+    ]
+  }},
   "test_patterns": {{
     "test_framework": "pytest | jest | vitest | go test",
     "test_directories": ["tests/", "__tests__/"],
@@ -809,6 +823,20 @@ dependencies.
 - Do NOT include any file larger than 50 KB or any dotfile (except \
 safe dotfiles listed above).
 - Include the FULL content of each file as the value string.
+
+### code_comments
+- For each file in relevant_files, extract significant comments and \
+docstrings that explain implementation decisions, design rationale, \
+known limitations, or architectural context.
+- Include: module/class/function docstrings, comments explaining WHY \
+(not WHAT), TODO/FIXME/HACK/NOTE markers, AI-generated implementation \
+notes, warnings about edge cases or known issues.
+- Skip: trivial comments that just restate the code (e.g. \
+"# increment counter"), auto-generated boilerplate, license headers.
+- Keep the original comment text verbatim. Include enough context to \
+understand what the comment refers to (e.g. prefix with the function \
+or class name if it's a docstring).
+- If a file has no significant comments, omit it from code_comments.
 
 ### test_patterns
 - Detect the test framework from config files.

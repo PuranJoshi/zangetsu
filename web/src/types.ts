@@ -88,6 +88,7 @@ export interface ProjectContext {
   relevant_files: Record<string, string>
   test_patterns: TestPatterns
   summary: string
+  code_comments: Record<string, string[]>
 }
 
 // ---------------------------------------------------------------------------
