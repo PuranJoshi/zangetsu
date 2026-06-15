@@ -8,7 +8,6 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
-    reviewers: []
     labels:
       - "dependencies"
       - "python"
@@ -20,7 +19,6 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
-    reviewers: []
     labels:
       - "dependencies"
       - "javascript"
