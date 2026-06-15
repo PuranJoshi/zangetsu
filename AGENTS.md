@@ -3,7 +3,15 @@
 > **Keeping docs in sync:** Before making changes, check `docs/ARCHITECTURE.md`
 > for the current architecture and design.
 > After making changes, update `docs/ARCHITECTURE.md`, `README.md`, and this file
-> to reflect the new state. Run `pytest` to verify nothing is broken.
+> to reflect the new state.
+>
+> **Verification (run after every change):**
+> ```
+> .venv/bin/python -m ruff check code_council/   # lint (rules: E, F, I, W)
+> .venv/bin/python -m pytest tests/ -x --tb=short # tests (231+ tests, no API calls)
+> cd web && npx tsc --noEmit                       # frontend type check
+> ```
+> All three must pass before considering a change complete.
 
 ## What is Code Council?
 
@@ -55,6 +63,7 @@ bankai "Want to build a cash deposit feature"
 | `bankai "description"` | Plan a code change |
 | `bankai --json "description"` | Output plan as raw JSON |
 | `bankai -p ./path "description"` | Scan a specific project |
+| `bankai --context ctx.json "description"` | Load AI-generated context JSON |
 | `bankai --load <plan-id>` | Resume from a previous plan or transcript |
 | `bankai --export <plan-id>` | Export a plan as humanised Markdown |
 | `bankai export <plan-id>` | Same as `--export` (subcommand form) |

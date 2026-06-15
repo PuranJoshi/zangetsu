@@ -53,6 +53,9 @@ bankai "Add user authentication to the API"
 # Plan with a specific project path (skips the interactive project prompt)
 bankai -p ./my-app "Add JWT auth"
 
+# Load AI-generated project context from a JSON file
+bankai --context project-context.json "Add JWT auth"
+
 # Output raw JSON instead of formatted text
 bankai --json "Build a caching layer"
 
@@ -72,9 +75,10 @@ bankai show <plan-id>
    The entire framing conversation (questions, answers, final requirement) is
    saved as a transcript in `~/.code-council/transcripts/`.
 
-2. **Project Context** -- Optionally scans an existing project for directory
-   structure, tech stack, and relevant files (with user approval before reading
-   any file content).
+2. **Project Context** -- Optionally provides project context via three methods:
+   scan a local directory (with user approval before reading files), upload
+   AI-generated context JSON (the tool generates a tailored prompt you give to
+   your AI coding tool), or skip for greenfield projects.
 
 3. **Advising** -- 6 advisors analyze the requirements in parallel:
    - **Executor** -- how to build it, step by step, acceptance criteria in integration tests, test pyramid, coverage

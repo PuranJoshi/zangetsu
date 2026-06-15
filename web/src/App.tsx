@@ -618,19 +618,12 @@ export default function App() {
               {/* Phase: Project scanning */}
               {phase === "scanning" && (
                 <ProjectScanner
-                  treeResult={scanner.treeResult}
-                  discoveredFiles={scanner.discoveredFiles}
-                  isScanning={
-                    scanner.phase === "scanning" ||
-                    scanner.phase === "discovering" ||
-                    scanner.phase === "approving"
-                  }
+                  isScanning={scanner.phase === "approving"}
                   error={scanner.error}
-                  onScanPath={scanner.scanTree}
-                  onDiscover={scanner.discoverFiles}
-                  onApprove={scanner.approveFiles}
+                  onUploadContext={scanner.uploadContext}
                   onSkip={handleScanSkip}
                   changeDescription={rawDescription}
+                  framedRequirement={framedRequirement}
                 />
               )}
 

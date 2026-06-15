@@ -20,6 +20,7 @@ export interface UseProjectScanResult {
     approvedPaths: string[],
     configFiles?: string[]
   ) => Promise<void>
+  uploadContext: (contextJson: string) => Promise<void>
   reset: () => void
 }
 
@@ -113,6 +114,33 @@ export function useProjectScan(): UseProjectScanResult {
     []
   )
 
+  const uploadContext = useCallback(async (contextJson: string) => {
+    setPhase("approving")
+    setError(null)
+    try {
+      const parsed = JSON.parse(contextJson)
+      const res = await fetch("/api/scan/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_context: parsed }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      setProjectContext(data.project_context)
+      setPhase("done")
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        setError("Invalid JSON -- check the format and try again")
+      } else {
+        setError(err instanceof Error ? err.message : "Upload failed")
+      }
+      setPhase("error")
+    }
+  }, [])
+
   const reset = useCallback(() => {
     setPhase("idle")
     setTreeResult(null)
@@ -130,6 +158,7 @@ export function useProjectScan(): UseProjectScanResult {
     scanTree,
     discoverFiles,
     approveFiles,
+    uploadContext,
     reset,
   }
 }

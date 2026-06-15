@@ -130,7 +130,7 @@ Phase 1  │     FRAMING      │  frame_request() calls LLM with framer.md skil
                   │  Each Q&A pair is appended to the transcript
                   ▼
          ┌──────────────────┐
-Phase 2  │  PROJECT CONTEXT │  Interactive: scan filesystem, approve files
+Phase 2  │  PROJECT CONTEXT │  Scan local, upload AI-generated JSON, or skip
          │  (context.py)    │  Produces ProjectContext (tree, tech stack, files)
          └────────┬─────────┘
                   ▼
@@ -243,6 +243,7 @@ Orchestrates the full pipeline including the post-synthesis review loop. Contain
   - `--load <plan_id>` -- resume from a previous plan or transcript
   - `--export <plan_id>` -- export a plan as humanised Markdown
   - `--project / -p` -- path to project to build into
+  - `--context` -- path to a JSON file containing pre-built ProjectContext
   - `--json` -- output raw JSON
 - **Load context resume** (`--load`) -- checks for both saved plans and
   transcripts, then resumes at the appropriate pipeline stage:
@@ -309,7 +310,7 @@ LLM client wrapper using the OpenAI Python SDK pointed at a Langdock endpoint.
 - Both basic API (`complete`/`chat`) and extended API (`complete_with_usage`/
   `chat_with_usage` returning `LLMResult` with token counts)
 
-### `context.py` (617 lines)
+### `context.py` (~800 lines)
 Project filesystem scanner that builds structured context for advisors.
 - Recursive directory tree builder with depth limiting
 - Config file discovery (13 known filenames)
@@ -318,6 +319,9 @@ Project filesystem scanner that builds structured context for advisors.
 - Keyword-based relevant file scoring
 - Three-layer file safety: dotfiles blocked, credential patterns flagged,
   only user-approved files are read
+- `generate_context_prompt()` -- builds a tailored AI prompt from the
+  change description and framed requirement so users can generate
+  `ProjectContext` JSON via an external AI tool instead of scanning locally
 
 ### `framer.py` (268 lines)
 Requirements framing -- Phase 1. Takes a raw feature request, calls the LLM
@@ -545,6 +549,7 @@ one per line, `#` comments supported).
 | `bankai "description"` | Run full pipeline: frame + scan + advise + synthesize |
 | `bankai --json "description"` | Same, but output raw JSON |
 | `bankai -p ./path "description"` | Skip project prompt, use given path |
+| `bankai --context ctx.json "description"` | Load AI-generated ProjectContext from JSON file |
 | `bankai --load <plan_id>` | Resume from a previous plan or transcript |
 | `bankai --export <plan_id>` | Export a plan as humanised Markdown |
 | `bankai export <plan_id>` | Same as `--export` (subcommand form) |

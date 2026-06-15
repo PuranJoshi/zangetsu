@@ -59,6 +59,19 @@ class ScanApproveRequest(BaseModel):
     config_files: list[str] | None = None
 
 
+class ScanPromptRequest(BaseModel):
+    """Generate an AI prompt for producing project context externally."""
+
+    change_description: str
+    framed_requirement: dict[str, Any] | None = None
+
+
+class ScanUploadRequest(BaseModel):
+    """Accept a raw ProjectContext JSON produced by an external AI tool."""
+
+    project_context: dict[str, Any]
+
+
 class ResumeRequest(BaseModel):
     load_id: str
 
@@ -1378,6 +1391,46 @@ async def scan_approve(req: ScanApproveRequest) -> dict:
     return {
         "project_context": ctx.model_dump(),
         "files_read": len(relevant_files),
+    }
+
+
+@app.post("/scan/prompt")
+async def scan_prompt(req: ScanPromptRequest) -> dict:
+    """Generate an AI prompt for producing project context externally.
+
+    Instead of scanning a local filesystem, the user copies this prompt
+    into their AI coding tool, which reads the repo and returns JSON
+    matching the ProjectContext schema.
+    """
+    from code_council.context import generate_context_prompt
+
+    prompt = generate_context_prompt(
+        change_description=req.change_description,
+        framed_requirement=req.framed_requirement,
+    )
+    return {"prompt": prompt}
+
+
+@app.post("/scan/upload")
+async def scan_upload(req: ScanUploadRequest) -> dict:
+    """Accept a raw ProjectContext JSON produced by an external AI tool.
+
+    Validates the JSON against the ProjectContext schema and returns
+    the normalised context ready for the advisor pipeline.
+    """
+    from code_council.context import ProjectContext
+
+    try:
+        ctx = ProjectContext(**req.project_context)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid ProjectContext JSON: {exc}",
+        ) from exc
+
+    return {
+        "project_context": ctx.model_dump(),
+        "valid": True,
     }
 
 

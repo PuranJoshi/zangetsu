@@ -670,3 +670,154 @@ async def gather_context(
         test_patterns=test_patterns,
         summary="",  # LLM-generated summary is a v2 feature
     )
+
+
+# ---------------------------------------------------------------------------
+# AI context prompt generator
+# ---------------------------------------------------------------------------
+
+
+def generate_context_prompt(
+    change_description: str,
+    framed_requirement: dict[str, object] | None = None,
+) -> str:
+    """Generate a prompt that an AI coding tool can use to produce ProjectContext JSON.
+
+    Instead of scanning a local filesystem, the user copies this prompt into
+    their AI tool (OpenCode, Cursor, Copilot, etc.), which reads the repo and
+    returns a JSON blob matching the ProjectContext schema. The user then
+    pastes that JSON back into Code Council.
+
+    The prompt is tailored to the specific change being planned so the AI
+    tool can pick the most relevant files rather than generic ones.
+    """
+
+    # -- Build the requirement context section ---------------------------------
+    req_section = ""
+    if framed_requirement:
+        parts: list[str] = []
+        req_type = framed_requirement.get("type", "")
+        title = framed_requirement.get("title", "")
+        desc = framed_requirement.get("description", "")
+        criteria = framed_requirement.get("acceptance_criteria", [])
+        assumptions = framed_requirement.get("assumptions", [])
+        stories = framed_requirement.get("stories", [])
+
+        if req_type:
+            parts.append(f"**Type:** {req_type}")
+        if title:
+            parts.append(f"**Title:** {title}")
+        if desc:
+            parts.append(f"**Description:** {desc}")
+        if criteria and isinstance(criteria, list):
+            parts.append("**Acceptance Criteria:**")
+            for ac in criteria:
+                parts.append(f"  - {ac}")
+        if assumptions and isinstance(assumptions, list):
+            parts.append("**Assumptions:**")
+            for a in assumptions:
+                parts.append(f"  - {a}")
+        if stories and isinstance(stories, list):
+            parts.append(f"**Sub-stories:** {len(stories)} stories")
+            for s in stories:
+                if isinstance(s, dict):
+                    parts.append(
+                        f"  - [{s.get('type', '?')}] {s.get('title', '?')}: "
+                        f"{s.get('description', '')}"
+                    )
+
+        if parts:
+            req_section = (
+                "\n## Framed Requirement\n\n"
+                + "\n".join(parts)
+                + "\n"
+            )
+
+    # -- Assemble the full prompt ----------------------------------------------
+    prompt = f"""\
+Analyze this repository and produce a JSON object that captures the project
+context needed for planning the change described below.
+
+## Change Being Planned
+
+{change_description}
+{req_section}
+## Your Task
+
+Scan the repository and output ONLY a single JSON object (no markdown fences,
+no explanation, no commentary) matching this exact schema:
+
+```
+{{
+  "project_path": "<absolute path to the repo root>",
+  "directory_tree": "<indented tree string, max 4 levels deep>",
+  "tech_stack": {{
+    "languages": ["Python", "TypeScript", ...],
+    "frameworks": ["FastAPI", "React", ...],
+    "build_tools": ["hatchling", "webpack", ...],
+    "package_manager": "pip | npm | pnpm | yarn | cargo",
+    "runtime": "python3 | node | deno"
+  }},
+  "config_files": {{
+    "<filename>": "<full file contents as string>"
+  }},
+  "relevant_files": {{
+    "<relative/path/to/file>": "<full file contents as string>"
+  }},
+  "test_patterns": {{
+    "test_framework": "pytest | jest | vitest | go test",
+    "test_directories": ["tests/", "__tests__/"],
+    "test_file_pattern": "test_*.py | *.test.ts",
+    "example_test_files": ["tests/test_auth.py", ...]
+  }},
+  "summary": "<1-2 sentence summary of the project>"
+}}
+```
+
+## Rules
+
+### directory_tree
+- Indented tree like the `tree` command (2 or 4 space indent).
+- Max depth: 4 levels.
+- **Skip entirely:** .git, node_modules, __pycache__, .venv, venv, \
+.mypy_cache, .pytest_cache, .ruff_cache, dist, build, .next, .nuxt, \
+target, .tox, egg-info, .eggs, .DS_Store, .idea, .vscode.
+- If a directory has >20 entries, show the first 15 and append \
+"... (N more)".
+
+### config_files
+- Include contents of these root-level files if they exist: \
+pyproject.toml, setup.py, setup.cfg, package.json, tsconfig.json, \
+Cargo.toml, go.mod, pom.xml, build.gradle, build.gradle.kts, Makefile, \
+Dockerfile, docker-compose.yml, requirements.txt.
+- Also include safe dotfiles: .gitignore, .dockerignore, .editorconfig, \
+.eslintrc, .eslintrc.json, .prettierrc, .prettierrc.json, .flake8.
+- **NEVER include:** .env, .npmrc, or any file whose name contains: \
+secret, credential, password, token, private_key, service_account, \
+keystore, .pem, .key, .p12, .jks.
+- Skip any file larger than 50 KB.
+
+### relevant_files
+- Pick 15-20 source files most relevant to the planned change above.
+- Prioritize files that would need to be read, modified, or understood \
+to implement this change: entry points, routers/controllers, data \
+models, services, middleware, schemas, and configuration.
+- Also include a few architectural files (project structure, dependency \
+injection, middleware setup) even if not directly modified.
+- Do NOT include test files, generated files, lock files, or vendored \
+dependencies.
+- Do NOT include any file larger than 50 KB or any dotfile (except \
+safe dotfiles listed above).
+- Include the FULL content of each file as the value string.
+
+### test_patterns
+- Detect the test framework from config files.
+- List actual test directories that exist.
+- Provide the naming pattern used for test files.
+- List up to 5 real test file paths as examples.
+
+### summary
+- 1-2 sentences: what the project does, primary language/framework, \
+and architecture style (monolith, microservices, CLI, library, etc)."""
+
+    return prompt
