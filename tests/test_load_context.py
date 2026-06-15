@@ -12,18 +12,15 @@ import os
 from pathlib import Path
 from unittest import mock
 
-import pytest
-
 from code_council.cli import (
+    _RESUME_CONFIRMATION,
+    _RESUME_SYNTHESIS,
     _extract_qa_pairs,
     _generate_plan_id,
     _resolve_load_context,
-    _RESUME_CONFIRMATION,
-    _RESUME_SYNTHESIS,
 )
 from code_council.config import Settings
-from code_council.utils import slugify, plan_filename_stem
-
+from code_council.utils import plan_filename_stem, slugify
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -131,23 +128,28 @@ class TestResolveLoadContext:
         assert result is None
 
     def test_plan_with_advisor_responses_resumes_at_synthesis(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         settings = _test_settings(tmp_path)
-        _write_plan(settings, "abc123", {
-            "plan_id": "abc123",
-            "change_description": "Add auth",
-            "framed_requirement": {
-                "type": "story",
-                "title": "Add Auth",
-                "description": "Add authentication",
+        _write_plan(
+            settings,
+            "abc123",
+            {
+                "plan_id": "abc123",
+                "change_description": "Add auth",
+                "framed_requirement": {
+                    "type": "story",
+                    "title": "Add Auth",
+                    "description": "Add authentication",
+                },
+                "advisor_responses": {
+                    "Architect Advisor": "Use JWT.",
+                    "Security Advisor": "Validate tokens.",
+                },
+                "context_summary": "Python FastAPI project.",
             },
-            "advisor_responses": {
-                "Architect Advisor": "Use JWT.",
-                "Security Advisor": "Validate tokens.",
-            },
-            "context_summary": "Python FastAPI project.",
-        })
+        )
 
         result = _resolve_load_context("abc123", settings)
         assert result is not None
@@ -158,19 +160,24 @@ class TestResolveLoadContext:
         assert result["framed_data"]["title"] == "Add Auth"
 
     def test_plan_with_framed_but_no_advisors_resumes_at_confirmation(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         settings = _test_settings(tmp_path)
-        _write_plan(settings, "def456", {
-            "plan_id": "def456",
-            "change_description": "Add payments",
-            "framed_requirement": {
-                "type": "epic",
-                "title": "Add Payments",
-                "description": "Add payment processing",
+        _write_plan(
+            settings,
+            "def456",
+            {
+                "plan_id": "def456",
+                "change_description": "Add payments",
+                "framed_requirement": {
+                    "type": "epic",
+                    "title": "Add Payments",
+                    "description": "Add payment processing",
+                },
+                # No advisor_responses key
             },
-            # No advisor_responses key
-        })
+        )
 
         result = _resolve_load_context("def456", settings)
         assert result is not None
@@ -179,27 +186,36 @@ class TestResolveLoadContext:
         assert result["framed_data"]["title"] == "Add Payments"
 
     def test_plan_without_framed_falls_through_to_transcript(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """A plan with no framed_requirement should fall through to
         check for a transcript."""
         settings = _test_settings(tmp_path)
         # Plan without framed_requirement
-        _write_plan(settings, "ghi789", {
-            "plan_id": "ghi789",
-            "change_description": "Legacy plan",
-        })
+        _write_plan(
+            settings,
+            "ghi789",
+            {
+                "plan_id": "ghi789",
+                "change_description": "Legacy plan",
+            },
+        )
         # Transcript exists for same ID
-        _write_transcript(settings, "ghi789", {
-            "plan_id": "ghi789",
-            "question": "Add legacy feature",
-            "framer_messages": [
-                {"role": "user", "text": "Add legacy feature"},
-                {"role": "framer", "text": "What provider?", "msg_id": "1"},
-                {"role": "user", "text": "Stripe", "msg_id": "1"},
-            ],
-            "framed_question": "Add legacy feature with Stripe",
-        })
+        _write_transcript(
+            settings,
+            "ghi789",
+            {
+                "plan_id": "ghi789",
+                "question": "Add legacy feature",
+                "framer_messages": [
+                    {"role": "user", "text": "Add legacy feature"},
+                    {"role": "framer", "text": "What provider?", "msg_id": "1"},
+                    {"role": "user", "text": "Stripe", "msg_id": "1"},
+                ],
+                "framed_question": "Add legacy feature with Stripe",
+            },
+        )
 
         result = _resolve_load_context("ghi789", settings)
         assert result is not None
@@ -210,18 +226,22 @@ class TestResolveLoadContext:
 
     def test_transcript_only_with_qa_pairs(self, tmp_path: Path) -> None:
         settings = _test_settings(tmp_path)
-        _write_transcript(settings, "tx001", {
-            "plan_id": "tx001",
-            "question": "Build a dashboard",
-            "framer_messages": [
-                {"role": "user", "text": "Build a dashboard"},
-                {"role": "framer", "text": "What metrics?", "msg_id": "1"},
-                {"role": "user", "text": "Revenue and signups", "msg_id": "1"},
-                {"role": "framer", "text": "What framework?", "msg_id": "2"},
-                {"role": "user", "text": "React", "msg_id": "2"},
-            ],
-            "framed_question": "Dashboard with revenue/signup metrics in React",
-        })
+        _write_transcript(
+            settings,
+            "tx001",
+            {
+                "plan_id": "tx001",
+                "question": "Build a dashboard",
+                "framer_messages": [
+                    {"role": "user", "text": "Build a dashboard"},
+                    {"role": "framer", "text": "What metrics?", "msg_id": "1"},
+                    {"role": "user", "text": "Revenue and signups", "msg_id": "1"},
+                    {"role": "framer", "text": "What framework?", "msg_id": "2"},
+                    {"role": "user", "text": "React", "msg_id": "2"},
+                ],
+                "framed_question": "Dashboard with revenue/signup metrics in React",
+            },
+        )
 
         result = _resolve_load_context("tx001", settings)
         assert result is not None
@@ -233,14 +253,18 @@ class TestResolveLoadContext:
     def test_transcript_with_no_qa_pairs(self, tmp_path: Path) -> None:
         """A transcript with only the initial user message (no Q&A)."""
         settings = _test_settings(tmp_path)
-        _write_transcript(settings, "tx002", {
-            "plan_id": "tx002",
-            "question": "Build something simple",
-            "framer_messages": [
-                {"role": "user", "text": "Build something simple"},
-            ],
-            "framed_question": None,
-        })
+        _write_transcript(
+            settings,
+            "tx002",
+            {
+                "plan_id": "tx002",
+                "question": "Build something simple",
+                "framer_messages": [
+                    {"role": "user", "text": "Build something simple"},
+                ],
+                "framed_question": None,
+            },
+        )
 
         result = _resolve_load_context("tx002", settings)
         assert result is not None
@@ -250,28 +274,37 @@ class TestResolveLoadContext:
         assert result["resume_point"] != _RESUME_CONFIRMATION
 
     def test_plan_takes_priority_over_transcript(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """When both a plan and transcript exist, the plan should win."""
         settings = _test_settings(tmp_path)
 
-        _write_plan(settings, "both01", {
-            "plan_id": "both01",
-            "change_description": "Feature X",
-            "framed_requirement": {
-                "type": "task",
-                "title": "Feature X",
-                "description": "Implement feature X",
+        _write_plan(
+            settings,
+            "both01",
+            {
+                "plan_id": "both01",
+                "change_description": "Feature X",
+                "framed_requirement": {
+                    "type": "task",
+                    "title": "Feature X",
+                    "description": "Implement feature X",
+                },
+                "advisor_responses": {"Executor Advisor": "Step 1: do it."},
             },
-            "advisor_responses": {"Executor Advisor": "Step 1: do it."},
-        })
+        )
 
-        _write_transcript(settings, "both01", {
-            "plan_id": "both01",
-            "question": "Feature X",
-            "framer_messages": [{"role": "user", "text": "Feature X"}],
-            "framed_question": "Implement feature X",
-        })
+        _write_transcript(
+            settings,
+            "both01",
+            {
+                "plan_id": "both01",
+                "question": "Feature X",
+                "framer_messages": [{"role": "user", "text": "Feature X"}],
+                "framed_question": "Implement feature X",
+            },
+        )
 
         result = _resolve_load_context("both01", settings)
         assert result is not None

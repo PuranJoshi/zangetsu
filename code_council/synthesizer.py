@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Protocol
 
 from pydantic import BaseModel
@@ -149,8 +148,7 @@ def _synthesizer_prompt(
     skill_text = discover_synthesizer_skill()
 
     advisor_section = "\n\n".join(
-        f"**{name}:**\n{text}"
-        for name, text in advisor_responses.items()
+        f"**{name}:**\n{text}" for name, text in advisor_responses.items()
     )
 
     tech_summary = (
@@ -216,7 +214,7 @@ def _synthesizer_prompt(
         "IMPORTANT RULES:\n"
         "- `depends_on` must be a list of integer step numbers "
         "(the `order` field), NOT file paths. For example, if step 2 "
-        "depends on step 1, use `\"depends_on\": [1]`.\n"
+        'depends on step 1, use `"depends_on": [1]`.\n'
         "- `story` on each step groups it into a user story. Use the "
         "same label as the matching `incremental_changes` entry.\n"
         "- `incremental_changes` breaks the work into small, shippable "

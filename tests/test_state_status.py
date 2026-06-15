@@ -20,8 +20,15 @@ class TestPlanStatus:
         """All 10 states should be defined. If you add a new state,
         add it to this set -- the test will remind you."""
         expected = {
-            "framing", "drafting", "proposed", "reviewing",
-            "agreed", "executing", "completed", "rejected", "stalled",
+            "framing",
+            "drafting",
+            "proposed",
+            "reviewing",
+            "agreed",
+            "executing",
+            "completed",
+            "rejected",
+            "stalled",
             "council_reviewed",
         }
         actual = {s.value for s in PlanStatus}

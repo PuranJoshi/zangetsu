@@ -131,7 +131,7 @@ function PlanList({ onSelectPlan }: { onSelectPlan: (id: string) => void }) {
   }, [])
 
   useEffect(() => {
-    fetchPlans()
+    void fetchPlans()
   }, [fetchPlans])
 
   if (loading) {

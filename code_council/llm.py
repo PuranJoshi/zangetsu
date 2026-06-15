@@ -183,13 +183,14 @@ class LangdockLLM:
                     wait = 2**attempt
                     logger.warning(
                         "LLM call attempt %d/%d failed (%s), retrying in %ds",
-                        attempt, max_retries, exc, wait,
+                        attempt,
+                        max_retries,
+                        exc,
+                        wait,
                     )
                     await asyncio.sleep(wait)
 
-        raise RuntimeError(
-            f"LLM call failed after {max_retries} attempts"
-        ) from last_exc
+        raise RuntimeError(f"LLM call failed after {max_retries} attempts") from last_exc
 
     # -- Public API (backward-compatible: returns str) ---------------------
 

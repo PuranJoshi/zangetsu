@@ -10,9 +10,9 @@ Python lesson: why test JSON parsing separately?
 import pytest
 
 from code_council.synthesizer import (
-    synthesize_plan,
     ChangePlan,
     _extract_json,
+    synthesize_plan,
 )
 
 

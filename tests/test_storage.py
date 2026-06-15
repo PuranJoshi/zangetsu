@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest import mock
 
 from code_council.config import Settings
-from code_council.storage import save_plan, load_plan, list_recent_plans, delete_plan
+from code_council.storage import delete_plan, list_recent_plans, load_plan, save_plan
 
 
 def _test_settings(tmp_path: Path) -> Settings:
@@ -105,12 +105,14 @@ class TestListRecentPlans:
     def test_lists_plans(self, tmp_path: Path) -> None:
         for i in range(3):
             (tmp_path / f"plan-{i}.json").write_text(
-                json.dumps({
-                    "plan_id": str(i),
-                    "change_description": f"Change {i}",
-                    "state": {"status": "proposed"},
-                    "plan": {"risk_level": "LOW", "estimated_effort": "S"},
-                })
+                json.dumps(
+                    {
+                        "plan_id": str(i),
+                        "change_description": f"Change {i}",
+                        "state": {"status": "proposed"},
+                        "plan": {"risk_level": "LOW", "estimated_effort": "S"},
+                    }
+                )
             )
         settings = _test_settings(tmp_path)
         results = list_recent_plans(limit=10, settings=settings)
@@ -123,12 +125,14 @@ class TestListRecentPlans:
     def test_respects_limit(self, tmp_path: Path) -> None:
         for i in range(5):
             (tmp_path / f"plan-{i}.json").write_text(
-                json.dumps({
-                    "plan_id": str(i),
-                    "change_description": f"Change {i}",
-                    "state": {"status": "proposed"},
-                    "plan": {},
-                })
+                json.dumps(
+                    {
+                        "plan_id": str(i),
+                        "change_description": f"Change {i}",
+                        "state": {"status": "proposed"},
+                        "plan": {},
+                    }
+                )
             )
         settings = _test_settings(tmp_path)
         results = list_recent_plans(limit=2, settings=settings)

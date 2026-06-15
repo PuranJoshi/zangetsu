@@ -194,15 +194,17 @@ def list_recent_transcripts(
     for fp in files[:limit]:
         try:
             data = json.loads(fp.read_text())
-            results.append({
-                "plan_id": data.get("plan_id", ""),
-                "timestamp": data.get("timestamp", ""),
-                "question": (data.get("question", ""))[:120],
-                "status": data.get("status", "active"),
-                "base_plan_id": data.get("base_plan_id"),
-                "has_framed_question": data.get("framed_question") is not None,
-                "message_count": len(data.get("framer_messages", [])),
-            })
+            results.append(
+                {
+                    "plan_id": data.get("plan_id", ""),
+                    "timestamp": data.get("timestamp", ""),
+                    "question": (data.get("question", ""))[:120],
+                    "status": data.get("status", "active"),
+                    "base_plan_id": data.get("base_plan_id"),
+                    "has_framed_question": data.get("framed_question") is not None,
+                    "message_count": len(data.get("framer_messages", [])),
+                }
+            )
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Skipping unreadable transcript %s: %s", fp, exc)
 

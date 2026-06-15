@@ -30,34 +30,6 @@ interface Props {
   isApplyingCouncilChanges?: boolean
 }
 
-// ── Collapsible panel ──────────────────────────────────────────────────────
-
-function Panel({
-  title,
-  children,
-  defaultOpen = false,
-}: {
-  title: string
-  children: React.ReactNode
-  defaultOpen?: boolean
-}) {
-  const [open, setOpen] = useState(defaultOpen)
-  return (
-    <div className="border border-border rounded-lg overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-2.5
-                   bg-surface-secondary hover:bg-surface-tertiary
-                   transition-colors text-left"
-      >
-        <span className="text-sm font-medium text-text-primary">{title}</span>
-        <span className="text-text-muted text-xs">{open ? "\u25B2" : "\u25BC"}</span>
-      </button>
-      {open && <div className="px-4 py-3">{children}</div>}
-    </div>
-  )
-}
-
 // ── Group heading ──────────────────────────────────────────────────────────
 
 function GroupHeading({ children }: { children: React.ReactNode }) {

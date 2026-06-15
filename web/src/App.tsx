@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import type { FramedRequirement, ProjectContext, ChangePlan } from "./types"
 import { useFramer } from "./hooks/useFramer"
 import { useCouncilStream } from "./hooks/useCouncilStream"
@@ -43,7 +43,8 @@ export default function App() {
   const [projectContext, setProjectContext] = useState<ProjectContext | null>(null)
   const [planId, setPlanId] = useState<string | null>(null)
   const [basePlanId, setBasePlanId] = useState<string | null>(null)
-  const [reviewVersion, setReviewVersion] = useState(1)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_reviewVersion, setReviewVersion] = useState(1)
   const [isReframing, setIsReframing] = useState(false)
   const [reAdviseError, setReAdviseError] = useState<string | null>(null)
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0)
@@ -59,7 +60,9 @@ export default function App() {
 
   // Guard against duplicate phase transitions during a single render
   const phaseRef = useRef(phase)
-  phaseRef.current = phase
+  useEffect(() => {
+    phaseRef.current = phase
+  }, [phase])
 
   // ---------------------------------------------------------------------------
   // Phase transitions

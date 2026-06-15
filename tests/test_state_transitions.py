@@ -70,8 +70,12 @@ class TestInvalidTransitions:
     def test_completed_cannot_restart_to_framing(self) -> None:
         state = PlanState(plan_id="test")
         for s in [
-            PlanStatus.DRAFTING, PlanStatus.PROPOSED, PlanStatus.REVIEWING,
-            PlanStatus.AGREED, PlanStatus.EXECUTING, PlanStatus.COMPLETED,
+            PlanStatus.DRAFTING,
+            PlanStatus.PROPOSED,
+            PlanStatus.REVIEWING,
+            PlanStatus.AGREED,
+            PlanStatus.EXECUTING,
+            PlanStatus.COMPLETED,
         ]:
             state.transition(s)
         with pytest.raises(ValueError, match="Invalid transition"):
@@ -117,8 +121,12 @@ class TestCouncilReview:
         """Helper to advance a plan to COMPLETED state."""
         state = PlanState(plan_id="test")
         for s in [
-            PlanStatus.DRAFTING, PlanStatus.PROPOSED, PlanStatus.REVIEWING,
-            PlanStatus.AGREED, PlanStatus.EXECUTING, PlanStatus.COMPLETED,
+            PlanStatus.DRAFTING,
+            PlanStatus.PROPOSED,
+            PlanStatus.REVIEWING,
+            PlanStatus.AGREED,
+            PlanStatus.EXECUTING,
+            PlanStatus.COMPLETED,
         ]:
             state.transition(s)
         return state

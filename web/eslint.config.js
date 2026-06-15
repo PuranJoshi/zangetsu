@@ -18,5 +18,9 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Data-fetching effects legitimately call setState via useCallback helpers
+      'react-hooks/set-state-in-effect': 'warn',
+    },
   },
 ])

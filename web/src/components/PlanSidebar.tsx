@@ -79,7 +79,7 @@ export function PlanSidebar({ activePlanId, onSelectPlan, refreshKey }: Props) {
 
   // Fetch on mount and whenever refreshKey changes
   useEffect(() => {
-    fetchPlans()
+    void fetchPlans()
   }, [fetchPlans, refreshKey])
 
   return (

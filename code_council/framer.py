@@ -122,7 +122,7 @@ def _load_framer_skill() -> str:
     if text.strip().startswith("---"):
         end = text.find("---", 3)
         if end != -1:
-            return text[end + 3:].strip()
+            return text[end + 3 :].strip()
     return text
 
 
@@ -195,10 +195,7 @@ def _framer_prompt(
         parts.append(f"## Project Context\n\n{context_summary}\n\n---\n")
 
     parts.append(
-        "A user has submitted the following feature request:\n\n"
-        "---\n"
-        f"{change_description}\n"
-        "---\n\n"
+        f"A user has submitted the following feature request:\n\n---\n{change_description}\n---\n\n"
     )
 
     if clarification_answers:
@@ -244,7 +241,9 @@ async def frame_request(
     to pause and ask the user for answers, or proceed to advisors.
     """
     prompt = _framer_prompt(
-        change_description, context_summary, clarification_answers,
+        change_description,
+        context_summary,
+        clarification_answers,
     )
 
     raw_response = await llm.complete(prompt)

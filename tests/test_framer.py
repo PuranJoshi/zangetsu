@@ -10,16 +10,14 @@ Python lesson: json.loads in tests
     string matching. Always parse JSON in tests rather than using 'in'.
 """
 
-import json
-
 import pytest
 
 from code_council.framer import (
     FramedRequirement,
-    frame_request,
     _extract_json,
     _framer_prompt,
     _load_framer_skill,
+    frame_request,
 )
 
 

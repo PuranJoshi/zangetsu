@@ -25,15 +25,12 @@ Python lesson: fixtures vs helper functions
 
 from pathlib import Path
 
-import pytest
-
 from code_council.advisors import (
-    AdvisorSkill,
+    _advisor_seed,
+    _advisor_temperature,
     _parse_frontmatter,
     discover_advisor_skills,
     discover_synthesizer_skill,
-    _advisor_temperature,
-    _advisor_seed,
 )
 
 
@@ -163,8 +160,10 @@ class TestDiscoverSynthesizerSkill:
 
     def test_finds_synthesizer(self, tmp_path: Path) -> None:
         _write_skill(
-            tmp_path, "synthesizer.md",
-            name="synthesizer", skill_type="synthesizer",
+            tmp_path,
+            "synthesizer.md",
+            name="synthesizer",
+            skill_type="synthesizer",
             body="# Synthesizer\n\nMerge advisor outputs.",
         )
         text = discover_synthesizer_skill(tmp_path)

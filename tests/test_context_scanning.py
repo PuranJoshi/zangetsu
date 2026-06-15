@@ -17,15 +17,12 @@ Python lesson: why test filesystem code at all?
 
 from pathlib import Path
 
-import pytest
-
 from code_council.context import (
     build_directory_tree,
     detect_tech_stack,
-    find_config_files,
     detect_test_patterns,
+    find_config_files,
     find_relevant_files,
-    IGNORED_DIRS,
 )
 
 
@@ -85,7 +82,7 @@ class TestTechStackDetection:
     def test_detects_node_project(self, tmp_path: Path) -> None:
         config = {"package.json": '{"dependencies": {"react": "^18"}}'}
         tech = detect_tech_stack(tmp_path, config)
-        assert any(l in tech.languages for l in ["JavaScript", "TypeScript"])
+        assert any(lang in tech.languages for lang in ["JavaScript", "TypeScript"])
 
     def test_detects_react_framework(self, tmp_path: Path) -> None:
         config = {"package.json": '{"dependencies": {"react": "^18"}}'}
@@ -120,6 +117,7 @@ class TestDetectTestPatterns:
         (tmp_path / "tests").mkdir()
         (tmp_path / "tests" / "test_main.py").write_text("def test_x(): pass")
         from code_council.context import TechStack
+
         tech = TechStack(languages=["Python"])
         patterns = detect_test_patterns(tmp_path, tech)
         assert patterns.test_framework == "pytest"
@@ -129,6 +127,7 @@ class TestDetectTestPatterns:
         (tmp_path / "__tests__").mkdir()
         (tmp_path / "__tests__" / "app.test.js").write_text("test('x', () => {})")
         from code_council.context import TechStack
+
         tech = TechStack(languages=["JavaScript"])
         patterns = detect_test_patterns(tmp_path, tech)
         assert patterns.test_framework in ("jest", "vitest")

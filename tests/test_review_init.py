@@ -20,23 +20,19 @@ modules directly, matching the exact sequence of operations the
 endpoint performs.
 """
 
-import json
 import os
 from pathlib import Path
 from unittest import mock
 
-import pytest
-
 from code_council.config import Settings
-from code_council.storage import save_plan, load_plan
+from code_council.storage import load_plan, save_plan
 from code_council.transcript import (
-    init_transcript,
     append_framer_message,
-    set_framed_question,
+    init_transcript,
     load_transcript,
+    set_framed_question,
 )
 from code_council.utils import generate_plan_id
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -195,9 +191,7 @@ def _simulate_review_init(
         "plan_id": new_plan_id,
         "base_plan_id": base_plan_id,
         "framed_question": (
-            original_transcript.get("framed_question")
-            if original_transcript
-            else None
+            original_transcript.get("framed_question") if original_transcript else None
         ),
         "framed_requirement": framed_requirement,
     }
@@ -363,9 +357,7 @@ class TestReviewInitCreatesTranscript:
         assert "[RE-ADVISE FEEDBACK]" in last_msg["text"]
         assert "Add support for GBP too" in last_msg["text"]
 
-    def test_response_includes_framed_requirement_from_plan(
-        self, tmp_path: Path
-    ) -> None:
+    def test_response_includes_framed_requirement_from_plan(self, tmp_path: Path) -> None:
         transcript_dir = tmp_path / "transcripts"
         plan_dir = tmp_path / "plans"
         settings = _test_settings(plan_dir, transcript_dir)
@@ -583,6 +575,7 @@ class TestStorageBasePlanId:
             settings=settings,
         )
         from code_council.storage import list_recent_plans
+
         plans = list_recent_plans(settings=settings)
         assert len(plans) == 1
         assert plans[0]["base_plan_id"] == "parent-123"

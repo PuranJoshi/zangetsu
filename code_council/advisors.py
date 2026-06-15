@@ -160,7 +160,7 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
         return {}, text
 
     yaml_text = text[3:end].strip()
-    body = text[end + 3:].strip()
+    body = text[end + 3 :].strip()
 
     try:
         frontmatter = yaml.safe_load(yaml_text) or {}
@@ -263,10 +263,7 @@ def discover_synthesizer_skill(
             continue
 
         frontmatter, body = _parse_frontmatter(text)
-        if (
-            frontmatter.get("type") == "synthesizer"
-            and frontmatter.get("enabled", True)
-        ):
+        if frontmatter.get("type") == "synthesizer" and frontmatter.get("enabled", True):
             return body
 
     logger.warning("No synthesizer skill found in %s", skills_dir)
@@ -425,7 +422,9 @@ async def run_advisors(
     for skill in skills:
         advisor_params[skill.display_name] = {
             "temperature": _advisor_temperature(
-                skill.temperature_rank, total, temperature_spread,
+                skill.temperature_rank,
+                total,
+                temperature_spread,
             ),
             "seed": _advisor_seed(skill.seed_offset, plan_id),
         }
@@ -479,10 +478,7 @@ def discover_decision_gate_skill(
             continue
 
         frontmatter, body = _parse_frontmatter(text)
-        if (
-            frontmatter.get("type") == "decision_gate"
-            and frontmatter.get("enabled", True)
-        ):
+        if frontmatter.get("type") == "decision_gate" and frontmatter.get("enabled", True):
             return body
 
     logger.warning("No decision gate skill found in %s", skills_dir)
@@ -598,7 +594,9 @@ async def review_plan(
     async def _review_one(skill: AdvisorSkill) -> tuple[str, str]:
         prompt = _plan_review_prompt(skill, plan_summary)
         temp = _advisor_temperature(
-            skill.temperature_rank, total, temperature_spread,
+            skill.temperature_rank,
+            total,
+            temperature_spread,
         )
         seed = _advisor_seed(skill.seed_offset, plan_id)
         response = await llm.complete(prompt, temperature=temp, seed=seed)
@@ -627,10 +625,7 @@ def _decision_gate_prompt(
     skill_text = discover_decision_gate_skill()
     plan_summary = _format_plan_for_review(plan_data)
 
-    reviews_section = "\n\n".join(
-        f"**{name}:**\n{text}"
-        for name, text in advisor_reviews.items()
-    )
+    reviews_section = "\n\n".join(f"**{name}:**\n{text}" for name, text in advisor_reviews.items())
 
     parts = []
     if skill_text:

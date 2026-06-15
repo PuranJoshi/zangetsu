@@ -8,14 +8,9 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from code_council.cli import (
     _plan_to_markdown,
-    _humanise_markdown,
-    _load_humaniser_skill,
 )
-
 
 # ---------------------------------------------------------------------------
 # _plan_to_markdown
@@ -80,7 +75,9 @@ def _full_plan_data() -> dict:
             "assumptions": ["RS256 keys are pre-generated"],
             "out_of_scope": ["OAuth2 social login"],
         },
-        "context_summary": "Project: /tmp/myapp\nLanguages: Python\nFrameworks: FastAPI\nTests: pytest",
+        "context_summary": (
+            "Project: /tmp/myapp\nLanguages: Python\nFrameworks: FastAPI\nTests: pytest"
+        ),
     }
 
 
@@ -213,7 +210,7 @@ class TestPlanToMarkdown:
         md = _plan_to_markdown(_full_plan_data())
         lines = md.split("\n")
         # Every heading should start with #
-        headings = [l for l in lines if l.startswith("#")]
+        headings = [line for line in lines if line.startswith("#")]
         assert len(headings) >= 5  # title + major sections
         # No double-blank-line runs (indicates missing content)
         assert "\n\n\n\n" not in md

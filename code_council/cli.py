@@ -29,7 +29,7 @@ from pathlib import Path
 
 import typer
 
-from code_council.utils import generate_plan_id as _generate_plan_id, STOP_WORDS as _STOP_WORDS
+from code_council.utils import generate_plan_id as _generate_plan_id
 
 app = typer.Typer(
     name="bankai",
@@ -56,7 +56,8 @@ def bankai(
     ),
     project: str = typer.Option(
         None,
-        "--project", "-p",
+        "--project",
+        "-p",
         help="Path to the project to build into. If omitted, asked after framing.",
     ),
     output_json: bool = typer.Option(
@@ -98,12 +99,14 @@ def bankai(
     if load is not None:
         # description is populated from the loaded plan/transcript inside
         # _run_pipeline; pass a placeholder here.
-        asyncio.run(_run_pipeline(
-            description=description or "",
-            project_path=project,
-            output_json=output_json,
-            load_id=load,
-        ))
+        asyncio.run(
+            _run_pipeline(
+                description=description or "",
+                project_path=project,
+                output_json=output_json,
+                load_id=load,
+            )
+        )
         return
 
     if description is None:
@@ -117,9 +120,9 @@ def bankai(
 # ---------------------------------------------------------------------------
 
 # Resume points -- which pipeline stage to jump to.
-_RESUME_CONFIRMATION = "confirmation"   # skip framing, jump to confirmation gate
-_RESUME_ADVISORS = "advisors"           # skip framing, jump to advisor phase
-_RESUME_SYNTHESIS = "synthesis"         # skip framing + advisors, jump to synthesis
+_RESUME_CONFIRMATION = "confirmation"  # skip framing, jump to confirmation gate
+_RESUME_ADVISORS = "advisors"  # skip framing, jump to advisor phase
+_RESUME_SYNTHESIS = "synthesis"  # skip framing + advisors, jump to synthesis
 
 
 def _resolve_load_context(
@@ -228,15 +231,10 @@ def _extract_qa_pairs(messages: list[dict]) -> list[str]:
 
     # Also include [CORRECTION] messages (no msg_id pairing needed)
     for msg in messages:
-        if (
-            msg.get("role") == "user"
-            and "msg_id" in msg
-            and msg["text"].startswith("[CORRECTION]")
-        ):
+        if msg.get("role") == "user" and "msg_id" in msg and msg["text"].startswith("[CORRECTION]"):
             correction = msg["text"].removeprefix("[CORRECTION]").strip()
             pairs.append(
-                f"Q: (User correction after reviewing framed requirement)\n"
-                f"A: {correction}"
+                f"Q: (User correction after reviewing framed requirement)\nA: {correction}"
             )
 
     return pairs
@@ -262,17 +260,23 @@ async def _run_pipeline(
     from code_council.advisors import run_advisors
     from code_council.config import get_settings
     from code_council.context import (
-        ProjectContext, TechStack, TestPatterns,
-        build_directory_tree, find_config_files, detect_tech_stack,
-        detect_test_patterns, discover_relevant_paths, read_approved_files,
+        ProjectContext,
+        build_directory_tree,
+        detect_tech_stack,
+        detect_test_patterns,
+        discover_relevant_paths,
+        find_config_files,
+        read_approved_files,
     )
     from code_council.framer import FramedRequirement, frame_request
     from code_council.llm import get_llm
     from code_council.state import PlanState, PlanStatus
-    from code_council.storage import load_plan, save_plan
+    from code_council.storage import save_plan
     from code_council.synthesizer import synthesize_plan
     from code_council.transcript import (
-        init_transcript, append_framer_message, set_framed_question,
+        append_framer_message,
+        init_transcript,
+        set_framed_question,
     )
 
     settings = get_settings()
@@ -327,8 +331,7 @@ async def _run_pipeline(
             # Plan has advisor responses -- ask user whether to re-synthesize
             # or re-run the full pipeline from framing.
             typer.echo(
-                f"\nLoaded plan {loaded_context_id} "
-                f"(source: {source}, has advisor responses)"
+                f"\nLoaded plan {loaded_context_id} (source: {source}, has advisor responses)"
             )
             resynthesize = typer.confirm(
                 "  Re-synthesize from existing advisor responses?",
@@ -351,22 +354,14 @@ async def _run_pipeline(
             # Plan or transcript with framed requirement
             framed_data = resolved["framed_data"]
             framed = FramedRequirement(**framed_data)
-            typer.echo(
-                f"\nLoaded context from {source} {loaded_context_id}"
-            )
+            typer.echo(f"\nLoaded context from {source} {loaded_context_id}")
             # Fall through to the confirmation gate
 
         else:
             # Transcript only -- reconstruct framing from Q&A
-            typer.echo(
-                f"\nLoaded transcript {loaded_context_id} "
-                f"(no saved plan found)"
-            )
+            typer.echo(f"\nLoaded transcript {loaded_context_id} (no saved plan found)")
             if all_answers:
-                typer.echo(
-                    f"  Reconstructing framing from "
-                    f"{len(all_answers)} Q&A pair(s)..."
-                )
+                typer.echo(f"  Reconstructing framing from {len(all_answers)} Q&A pair(s)...")
                 clarification_text = "\n\n".join(all_answers)
                 framed = await frame_request(
                     change_description=description,
@@ -446,8 +441,9 @@ async def _run_pipeline(
                         typer.echo(f"  - {a}")
 
                 # Show the remaining unanswered questions
-                typer.echo(f"\nThere are still {len(framed.clarifications_needed)} "
-                           f"unanswered question(s):")
+                typer.echo(
+                    f"\nThere are still {len(framed.clarifications_needed)} unanswered question(s):"
+                )
                 for q in framed.clarifications_needed:
                     typer.echo(f"  ? {q}")
 
@@ -532,10 +528,7 @@ async def _run_pipeline(
 
         state.transition(PlanStatus.DRAFTING)
 
-        typer.echo(
-            f"\nRe-synthesizing from {len(advisor_responses)} saved advisor "
-            f"response(s)..."
-        )
+        typer.echo(f"\nRe-synthesizing from {len(advisor_responses)} saved advisor response(s)...")
         plan = await synthesize_plan(
             change_description=description,
             advisor_responses=advisor_responses,
@@ -561,10 +554,14 @@ async def _run_pipeline(
         )
 
         while True:
-            choice = typer.prompt(
-                "Your choice",
-                default="a",
-            ).strip().lower()
+            choice = (
+                typer.prompt(
+                    "Your choice",
+                    default="a",
+                )
+                .strip()
+                .lower()
+            )
 
             if choice in ("a", "approve"):
                 state.transition(PlanStatus.REVIEWING)
@@ -605,10 +602,14 @@ async def _run_pipeline(
         while True:
             typer.echo(_format_framed_requirement(framed))
 
-            confirmation = typer.prompt(
-                "Proceed to advisors? [y]es / [n]o, let me correct",
-                default="y",
-            ).strip().lower()
+            confirmation = (
+                typer.prompt(
+                    "Proceed to advisors? [y]es / [n]o, let me correct",
+                    default="y",
+                )
+                .strip()
+                .lower()
+            )
 
             if confirmation in ("y", "yes"):
                 break
@@ -629,8 +630,7 @@ async def _run_pipeline(
 
             # Add the correction as a clarification answer and re-frame
             all_answers.append(
-                f"Q: (User correction after reviewing framed requirement)\n"
-                f"A: {correction}"
+                f"Q: (User correction after reviewing framed requirement)\nA: {correction}"
             )
             clarification_text = "\n\n".join(all_answers)
             typer.echo("\nRe-framing with your corrections...")
@@ -643,9 +643,7 @@ async def _run_pipeline(
 
         # Record the final framed requirement in the transcript
         framed_text = (
-            f"[FRAMED] {framed.title}\n\n"
-            f"Type: {framed.type}\n"
-            f"Description: {framed.description}"
+            f"[FRAMED] {framed.title}\n\nType: {framed.type}\nDescription: {framed.description}"
         )
         append_framer_message(
             plan_id=plan_id,
@@ -781,7 +779,7 @@ async def _run_pipeline(
         while True:
             state.transition(PlanStatus.DRAFTING)
 
-            typer.echo(f"\nRunning advisors...")
+            typer.echo("\nRunning advisors...")
             advisor_responses, advisor_params, timing = await run_advisors(
                 change_description=description,
                 context=context,
@@ -791,8 +789,7 @@ async def _run_pipeline(
                 negotiation_feedback=negotiation_feedback,
             )
             typer.echo(
-                f"  {len(advisor_responses)} advisors completed "
-                f"in {timing['duration']:.1f}s"
+                f"  {len(advisor_responses)} advisors completed in {timing['duration']:.1f}s"
             )
 
             typer.echo("\nSynthesizing plan...")
@@ -826,10 +823,14 @@ async def _run_pipeline(
                 f"  [x] Reject    -- discard this plan\n"
             )
 
-            choice = typer.prompt(
-                "Your choice",
-                default="a",
-            ).strip().lower()
+            choice = (
+                typer.prompt(
+                    "Your choice",
+                    default="a",
+                )
+                .strip()
+                .lower()
+            )
 
             if choice in ("a", "approve"):
                 state.transition(PlanStatus.REVIEWING)
@@ -847,13 +848,15 @@ async def _run_pipeline(
                 state.transition(PlanStatus.REVIEWING)
 
                 if not state.can_negotiate():
-                    typer.echo(
-                        f"\nMax negotiation rounds ({state.max_rounds}) reached."
+                    typer.echo(f"\nMax negotiation rounds ({state.max_rounds}) reached.")
+                    stall_or_approve = (
+                        typer.prompt(
+                            "  [a] Approve current plan / [x] Reject",
+                            default="a",
+                        )
+                        .strip()
+                        .lower()
                     )
-                    stall_or_approve = typer.prompt(
-                        "  [a] Approve current plan / [x] Reject",
-                        default="a",
-                    ).strip().lower()
                     if stall_or_approve in ("x", "reject"):
                         state.transition(PlanStatus.REJECTED)
                         typer.echo("\nPlan rejected.")
@@ -862,9 +865,7 @@ async def _run_pipeline(
                         typer.echo("\nPlan approved.")
                     break
 
-                feedback = typer.prompt(
-                    "\n  What should the advisors reconsider?"
-                )
+                feedback = typer.prompt("\n  What should the advisors reconsider?")
                 if not feedback.strip():
                     typer.echo("  No feedback provided -- keeping current plan.")
                     state.transition(PlanStatus.AGREED)
@@ -883,9 +884,7 @@ async def _run_pipeline(
                 state.transition(PlanStatus.REVIEWING)
                 state.transition(PlanStatus.FRAMING)
 
-                correction = typer.prompt(
-                    "\n  What needs to change in the requirements?"
-                )
+                correction = typer.prompt("\n  What needs to change in the requirements?")
                 if not correction.strip():
                     typer.echo("  No correction -- keeping current plan.")
                     # Transition back to proposed -> reviewing -> agreed
@@ -906,10 +905,7 @@ async def _run_pipeline(
                 )
 
                 # Add the correction and re-frame
-                all_answers.append(
-                    f"Q: (User correction during plan review)\n"
-                    f"A: {correction}"
-                )
+                all_answers.append(f"Q: (User correction during plan review)\nA: {correction}")
                 clarification_text = "\n\n".join(all_answers)
                 typer.echo("\nRe-framing with your corrections...")
                 framed = await frame_request(
@@ -921,10 +917,14 @@ async def _run_pipeline(
 
                 # Show the updated requirement for confirmation
                 typer.echo(_format_framed_requirement(framed))
-                confirm_reframe = typer.prompt(
-                    "Proceed with updated requirements? [y]es / [n]o, cancel",
-                    default="y",
-                ).strip().lower()
+                confirm_reframe = (
+                    typer.prompt(
+                        "Proceed with updated requirements? [y]es / [n]o, cancel",
+                        default="y",
+                    )
+                    .strip()
+                    .lower()
+                )
 
                 if confirm_reframe not in ("y", "yes"):
                     typer.echo("  Cancelled -- keeping original plan.")
@@ -986,7 +986,7 @@ def _format_framed_requirement(framed) -> str:
     """
     lines = [
         f"\n{'=' * 60}",
-        f" FRAMED REQUIREMENT",
+        " FRAMED REQUIREMENT",
         f"{'=' * 60}",
         f" Type:  {framed.type}",
         f" Title: {framed.title}",
@@ -1075,7 +1075,7 @@ def _load_humaniser_skill() -> str:
     if text.strip().startswith("---"):
         end = text.find("---", 3)
         if end != -1:
-            return text[end + 3:].strip()
+            return text[end + 3 :].strip()
     return text
 
 

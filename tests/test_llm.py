@@ -13,7 +13,7 @@ Python lesson: testing your test infrastructure
 
 import pytest
 
-from code_council.llm import TokenUsage, LLMResult
+from code_council.llm import LLMResult, TokenUsage
 from tests.conftest import FakeLLM
 
 

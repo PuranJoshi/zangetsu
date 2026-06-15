@@ -62,9 +62,7 @@ class TestEnvOverrides:
         assert s.code_council_model == "gpt-5"
 
     def test_negotiation_rounds_override(self) -> None:
-        with mock.patch.dict(
-            os.environ, {"CODE_COUNCIL_MAX_NEGOTIATION_ROUNDS": "5"}, clear=True
-        ):
+        with mock.patch.dict(os.environ, {"CODE_COUNCIL_MAX_NEGOTIATION_ROUNDS": "5"}, clear=True):
             s = Settings()
         assert s.code_council_max_negotiation_rounds == 5
 
@@ -90,9 +88,7 @@ class TestRequireLangdock:
 
 class TestPlanPath:
     def test_plan_path_from_env(self) -> None:
-        with mock.patch.dict(
-            os.environ, {"CODE_COUNCIL_PLAN_DIR": "/tmp/plans"}, clear=True
-        ):
+        with mock.patch.dict(os.environ, {"CODE_COUNCIL_PLAN_DIR": "/tmp/plans"}, clear=True):
             s = Settings()
         assert s.plan_path == Path("/tmp/plans")
 

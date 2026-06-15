@@ -13,10 +13,10 @@ import json
 from pathlib import Path
 
 from code_council.transcript import (
-    init_transcript,
     append_framer_message,
-    set_framed_question,
+    init_transcript,
     load_transcript,
+    set_framed_question,
 )
 
 
@@ -90,22 +90,32 @@ class TestAppendFramerMessage:
     def test_appends_multiple_messages_in_order(self, tmp_path: Path) -> None:
         init_transcript(plan_id="msg-3", question="q", transcript_dir=tmp_path)
         append_framer_message(
-            plan_id="msg-3", role="user", text="first",
+            plan_id="msg-3",
+            role="user",
+            text="first",
             transcript_dir=tmp_path,
         )
         append_framer_message(
-            plan_id="msg-3", role="framer", text="second", msg_id="1",
+            plan_id="msg-3",
+            role="framer",
+            text="second",
+            msg_id="1",
             transcript_dir=tmp_path,
         )
         append_framer_message(
-            plan_id="msg-3", role="user", text="third", msg_id="1",
+            plan_id="msg-3",
+            role="user",
+            text="third",
+            msg_id="1",
             transcript_dir=tmp_path,
         )
         data = load_transcript("msg-3", transcript_dir=tmp_path)
         assert data is not None
         assert len(data["framer_messages"]) == 3
         assert [m["text"] for m in data["framer_messages"]] == [
-            "first", "second", "third",
+            "first",
+            "second",
+            "third",
         ]
 
     def test_skips_if_transcript_missing(self, tmp_path: Path) -> None:
@@ -122,7 +132,9 @@ class TestAppendFramerMessage:
     def test_omits_optional_fields_when_none(self, tmp_path: Path) -> None:
         init_transcript(plan_id="msg-4", question="q", transcript_dir=tmp_path)
         append_framer_message(
-            plan_id="msg-4", role="user", text="answer",
+            plan_id="msg-4",
+            role="user",
+            text="answer",
             transcript_dir=tmp_path,
         )
         data = load_transcript("msg-4", transcript_dir=tmp_path)
@@ -147,11 +159,13 @@ class TestSetFramedQuestion:
     def test_overwrites_previous_framed_question(self, tmp_path: Path) -> None:
         init_transcript(plan_id="fq-2", question="q", transcript_dir=tmp_path)
         set_framed_question(
-            plan_id="fq-2", framed_question="v1",
+            plan_id="fq-2",
+            framed_question="v1",
             transcript_dir=tmp_path,
         )
         set_framed_question(
-            plan_id="fq-2", framed_question="v2",
+            plan_id="fq-2",
+            framed_question="v2",
             transcript_dir=tmp_path,
         )
         data = load_transcript("fq-2", transcript_dir=tmp_path)
@@ -197,14 +211,16 @@ class TestFullConversationFlow:
 
         # 2. Record original user message
         append_framer_message(
-            plan_id=plan_id, role="user",
+            plan_id=plan_id,
+            role="user",
             text="Want to build a cash deposit feature",
             transcript_dir=tmp_path,
         )
 
         # 3. Framer asks clarification
         append_framer_message(
-            plan_id=plan_id, role="framer",
+            plan_id=plan_id,
+            role="framer",
             text="What payment provider should we integrate with?",
             msg_id="1",
             choices=["Stripe", "PayPal", "Square"],
@@ -213,7 +229,8 @@ class TestFullConversationFlow:
 
         # 4. User answers
         append_framer_message(
-            plan_id=plan_id, role="user",
+            plan_id=plan_id,
+            role="user",
             text="Stripe",
             msg_id="1",
             transcript_dir=tmp_path,
@@ -221,7 +238,8 @@ class TestFullConversationFlow:
 
         # 5. Framer asks another question
         append_framer_message(
-            plan_id=plan_id, role="framer",
+            plan_id=plan_id,
+            role="framer",
             text="What currencies do you need to support?",
             msg_id="2",
             transcript_dir=tmp_path,
@@ -229,7 +247,8 @@ class TestFullConversationFlow:
 
         # 6. User answers
         append_framer_message(
-            plan_id=plan_id, role="user",
+            plan_id=plan_id,
+            role="user",
             text="USD and EUR",
             msg_id="2",
             transcript_dir=tmp_path,
@@ -237,7 +256,8 @@ class TestFullConversationFlow:
 
         # 7. Framer produces final requirement
         append_framer_message(
-            plan_id=plan_id, role="framer",
+            plan_id=plan_id,
+            role="framer",
             text="[FRAMED] Cash deposit feature with Stripe in USD/EUR",
             transcript_dir=tmp_path,
         )
@@ -259,5 +279,10 @@ class TestFullConversationFlow:
         # Verify message ordering and structure
         roles = [m["role"] for m in data["framer_messages"]]
         assert roles == [
-            "user", "framer", "user", "framer", "user", "framer",
+            "user",
+            "framer",
+            "user",
+            "framer",
+            "user",
+            "framer",
         ]

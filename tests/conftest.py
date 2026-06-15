@@ -33,7 +33,6 @@ import pytest
 from code_council.context import ProjectContext, TechStack, TestPatterns
 from code_council.llm import LLMResult, TokenUsage
 
-
 # ---------------------------------------------------------------------------
 # FakeLLM -- deterministic LLM stub for testing
 # ---------------------------------------------------------------------------
@@ -80,15 +79,17 @@ class FakeLLM:
         """
         self.call_count += 1
         self.prompts.append(prompt)
-        self.call_params.append({
-            "prompt_preview": prompt[:80],
-            "temperature": temperature,
-            "seed": seed,
-        })
+        self.call_params.append(
+            {
+                "prompt_preview": prompt[:80],
+                "temperature": temperature,
+                "seed": seed,
+            }
+        )
 
         # Synthesizer prompt -- return valid JSON plan
         if "Plan Synthesizer" in prompt or "implementation_steps" in prompt:
-            return '''```json
+            return """```json
 {
     "title": "Test Change",
     "summary": "A test change for unit testing.",
@@ -121,11 +122,11 @@ class FakeLLM:
     "estimated_effort": "S",
     "risk_level": "LOW"
 }
-```'''
+```"""
 
         # Framer prompt -- return valid JSON framed requirement
         if "Requirements Framer" in prompt or "clarifications_needed" in prompt:
-            return '''```json
+            return """```json
 {
     "type": "story",
     "title": "Test Feature",
@@ -138,12 +139,16 @@ class FakeLLM:
     "clarifications_needed": [],
     "stories": []
 }
-```'''
+```"""
 
         # Advisor prompts -- echo back the role for identification
         advisor_keywords = [
-            "Architect Advisor", "Security Advisor", "Quality Advisor",
-            "Risk Advisor", "Executor Advisor", "Business Advisor",
+            "Architect Advisor",
+            "Security Advisor",
+            "Quality Advisor",
+            "Risk Advisor",
+            "Executor Advisor",
+            "Business Advisor",
         ]
         for keyword in advisor_keywords:
             if keyword in prompt:
@@ -175,7 +180,9 @@ class FakeLLM:
         return LLMResult(
             text=text,
             usage=TokenUsage(
-                prompt_tokens=100, completion_tokens=50, total_tokens=150,
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
             ),
         )
 
@@ -190,7 +197,9 @@ class FakeLLM:
         return LLMResult(
             text=text,
             usage=TokenUsage(
-                prompt_tokens=100, completion_tokens=50, total_tokens=150,
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
             ),
         )
 

@@ -234,7 +234,7 @@ export function DescriptionInput({ onSubmit, onLoadTranscript }: Props) {
   // Always fetch on mount
   useEffect(() => {
     if (onLoadTranscript) {
-      fetchTranscripts()
+      void fetchTranscripts()
     }
   }, [onLoadTranscript, fetchTranscripts])
 

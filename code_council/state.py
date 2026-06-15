@@ -42,15 +42,15 @@ class PlanStatus(str, Enum):
     REJECTED and STALLED can restart to FRAMING.
     """
 
-    FRAMING = "framing"         # Framer is defining requirements
-    DRAFTING = "drafting"       # Advisors are running, plan not yet ready
-    PROPOSED = "proposed"       # Plan synthesized, waiting for AI tool review
-    REVIEWING = "reviewing"     # AI tool is reviewing the plan
-    AGREED = "agreed"           # Both council and AI tool agree on the plan
-    EXECUTING = "executing"     # AI tool is implementing the plan
-    COMPLETED = "completed"     # Implementation finished
-    REJECTED = "rejected"       # AI tool rejected and max rounds exceeded
-    STALLED = "stalled"         # Needs human intervention
+    FRAMING = "framing"  # Framer is defining requirements
+    DRAFTING = "drafting"  # Advisors are running, plan not yet ready
+    PROPOSED = "proposed"  # Plan synthesized, waiting for AI tool review
+    REVIEWING = "reviewing"  # AI tool is reviewing the plan
+    AGREED = "agreed"  # Both council and AI tool agree on the plan
+    EXECUTING = "executing"  # AI tool is implementing the plan
+    COMPLETED = "completed"  # Implementation finished
+    REJECTED = "rejected"  # AI tool rejected and max rounds exceeded
+    STALLED = "stalled"  # Needs human intervention
     COUNCIL_REVIEWED = "council_reviewed"  # Plan revised after council review
 
 
@@ -59,9 +59,9 @@ class PlanStatus(str, Enum):
 # This dict IS the state machine. If a transition isn't listed here,
 # it's illegal. Read it as: "from this state, you can go to these states."
 VALID_TRANSITIONS: dict[PlanStatus, set[PlanStatus]] = {
-    PlanStatus.FRAMING:   {PlanStatus.DRAFTING},
-    PlanStatus.DRAFTING:  {PlanStatus.PROPOSED},
-    PlanStatus.PROPOSED:  {PlanStatus.REVIEWING},
+    PlanStatus.FRAMING: {PlanStatus.DRAFTING},
+    PlanStatus.DRAFTING: {PlanStatus.PROPOSED},
+    PlanStatus.PROPOSED: {PlanStatus.REVIEWING},
     PlanStatus.REVIEWING: {
         PlanStatus.AGREED,
         PlanStatus.DRAFTING,
@@ -69,12 +69,15 @@ VALID_TRANSITIONS: dict[PlanStatus, set[PlanStatus]] = {
         PlanStatus.REJECTED,
         PlanStatus.STALLED,
     },
-    PlanStatus.AGREED:    {PlanStatus.EXECUTING},
+    PlanStatus.AGREED: {PlanStatus.EXECUTING},
     PlanStatus.EXECUTING: {PlanStatus.COMPLETED},
     PlanStatus.COMPLETED: {PlanStatus.COUNCIL_REVIEWED},  # can be council-reviewed
-    PlanStatus.COUNCIL_REVIEWED: {PlanStatus.EXECUTING, PlanStatus.REVIEWING},  # proceed or revise again
-    PlanStatus.REJECTED:  {PlanStatus.FRAMING},      # can restart from scratch
-    PlanStatus.STALLED:   {PlanStatus.FRAMING},      # can restart from scratch
+    PlanStatus.COUNCIL_REVIEWED: {  # proceed or revise again
+        PlanStatus.EXECUTING,
+        PlanStatus.REVIEWING,
+    },
+    PlanStatus.REJECTED: {PlanStatus.FRAMING},  # can restart from scratch
+    PlanStatus.STALLED: {PlanStatus.FRAMING},  # can restart from scratch
 }
 
 
@@ -128,9 +131,7 @@ class PlanState(BaseModel):
                 f"Invalid transition: {self.status.value} -> {new_status.value}. "
                 f"Valid targets: {[s.value for s in allowed]}"
             )
-        logger.info(
-            "Plan %s: %s -> %s", self.plan_id, self.status.value, new_status.value
-        )
+        logger.info("Plan %s: %s -> %s", self.plan_id, self.status.value, new_status.value)
         self.status = new_status
 
     def can_negotiate(self) -> bool:

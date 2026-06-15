@@ -13,7 +13,8 @@ interface Props {
 
 export function FramerWizard({ messages, status, error, onReply, onSkip }: Props) {
   const [customText, setCustomText] = useState("")
-  const [showCustom, setShowCustom] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_showCustom, setShowCustom] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {

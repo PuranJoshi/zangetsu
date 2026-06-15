@@ -10,9 +10,9 @@ from pathlib import Path
 
 from code_council.context import (
     discover_relevant_paths,
-    read_approved_files,
     is_dotfile,
     is_potential_credential_file,
+    read_approved_files,
 )
 
 

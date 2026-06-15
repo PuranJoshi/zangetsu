@@ -73,21 +73,43 @@ class ProjectContext(BaseModel):
 # Directories to always skip when scanning.
 # These are either version control, dependency caches, or build artifacts.
 IGNORED_DIRS: set[str] = {
-    ".git", "node_modules", "__pycache__", ".venv", "venv",
-    ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist",
-    "build", ".next", ".nuxt", "target", ".tox", "egg-info",
-    ".eggs", ".DS_Store", ".idea", ".vscode",
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "dist",
+    "build",
+    ".next",
+    ".nuxt",
+    "target",
+    ".tox",
+    "egg-info",
+    ".eggs",
+    ".DS_Store",
+    ".idea",
+    ".vscode",
 }
 
 # Config files to look for, ordered by priority.
 # NOTE: no dotfiles here -- .env, .zshrc etc are NEVER read.
 CONFIG_FILES: list[str] = [
-    "pyproject.toml", "setup.py", "setup.cfg",
-    "package.json", "tsconfig.json",
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "package.json",
+    "tsconfig.json",
     "Cargo.toml",
     "go.mod",
-    "pom.xml", "build.gradle", "build.gradle.kts",
-    "Makefile", "Dockerfile", "docker-compose.yml",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "Makefile",
+    "Dockerfile",
+    "docker-compose.yml",
     "requirements.txt",
 ]
 
@@ -105,9 +127,9 @@ CREDENTIAL_PATTERNS: list[str] = [
     "credential",
     "password",
     "token",
-    ".live.",       # application.live.yaml (Kotlin/Spring)
-    ".prod.",       # application.prod.yaml
-    ".production.", # config.production.json
+    ".live.",  # application.live.yaml (Kotlin/Spring)
+    ".prod.",  # application.prod.yaml
+    ".production.",  # config.production.json
     ".staging.",
     "private_key",
     "service_account",
@@ -161,13 +183,46 @@ def is_potential_credential_file(name: str) -> bool:
     name_lower = name.lower()
     return any(pattern in name_lower for pattern in CREDENTIAL_PATTERNS)
 
+
 # Words to ignore when extracting keywords from change descriptions.
 # These are common English words that don't help identify relevant files.
 _STOPWORDS: set[str] = {
-    "a", "an", "the", "to", "in", "for", "of", "and", "or", "is", "it",
-    "on", "at", "by", "with", "from", "as", "be", "was", "that", "this",
-    "add", "new", "make", "use", "change", "update", "fix", "implement",
-    "create", "should", "would", "could", "can", "will", "need",
+    "a",
+    "an",
+    "the",
+    "to",
+    "in",
+    "for",
+    "of",
+    "and",
+    "or",
+    "is",
+    "it",
+    "on",
+    "at",
+    "by",
+    "with",
+    "from",
+    "as",
+    "be",
+    "was",
+    "that",
+    "this",
+    "add",
+    "new",
+    "make",
+    "use",
+    "change",
+    "update",
+    "fix",
+    "implement",
+    "create",
+    "should",
+    "would",
+    "could",
+    "can",
+    "will",
+    "need",
 }
 
 

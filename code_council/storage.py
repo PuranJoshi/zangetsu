@@ -172,15 +172,17 @@ def list_recent_plans(
     for fp in files[:limit]:
         try:
             data = json.loads(fp.read_text())
-            results.append({
-                "plan_id": data.get("plan_id", ""),
-                "timestamp": data.get("timestamp", ""),
-                "change_description": (data.get("change_description", ""))[:120],
-                "status": data.get("state", {}).get("status", "unknown"),
-                "risk_level": data.get("plan", {}).get("risk_level", ""),
-                "effort": data.get("plan", {}).get("estimated_effort", ""),
-                "base_plan_id": data.get("base_plan_id"),
-            })
+            results.append(
+                {
+                    "plan_id": data.get("plan_id", ""),
+                    "timestamp": data.get("timestamp", ""),
+                    "change_description": (data.get("change_description", ""))[:120],
+                    "status": data.get("state", {}).get("status", "unknown"),
+                    "risk_level": data.get("plan", {}).get("risk_level", ""),
+                    "effort": data.get("plan", {}).get("estimated_effort", ""),
+                    "base_plan_id": data.get("base_plan_id"),
+                }
+            )
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Skipping unreadable plan %s: %s", fp, exc)
 

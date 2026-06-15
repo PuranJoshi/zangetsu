@@ -51,9 +51,7 @@ def _write_skill_with_model(
 class TestModelFieldDiscovery:
     def test_skill_with_model_override(self, tmp_path: Path) -> None:
         """A skill with model: in frontmatter should have it set."""
-        _write_skill_with_model(
-            tmp_path, "architect.md", name="architect", model="claude-opus"
-        )
+        _write_skill_with_model(tmp_path, "architect.md", name="architect", model="claude-opus")
         skills = discover_advisor_skills(tmp_path)
         assert len(skills) == 1
         assert skills[0].model == "claude-opus"
@@ -68,15 +66,23 @@ class TestModelFieldDiscovery:
     def test_mixed_models(self, tmp_path: Path) -> None:
         """Different skills can specify different models."""
         _write_skill_with_model(
-            tmp_path, "architect.md", name="architect",
-            model="claude-opus", temperature_rank=0,
+            tmp_path,
+            "architect.md",
+            name="architect",
+            model="claude-opus",
+            temperature_rank=0,
         )
         _write_skill_with_model(
-            tmp_path, "business.md", name="business",
-            model="gpt-4o", temperature_rank=1,
+            tmp_path,
+            "business.md",
+            name="business",
+            model="gpt-4o",
+            temperature_rank=1,
         )
         _write_skill_with_model(
-            tmp_path, "executor.md", name="executor",
+            tmp_path,
+            "executor.md",
+            name="executor",
             temperature_rank=2,  # no model override
         )
         skills = discover_advisor_skills(tmp_path)

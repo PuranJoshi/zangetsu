@@ -10,7 +10,6 @@ Binds to 127.0.0.1 only.  No authentication for MVP (local-only tool).
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
@@ -36,6 +35,7 @@ class HealthResponse(BaseModel):
 
 class CouncilStreamRequest(BaseModel):
     """Start the advisor + synthesis pipeline after framing is done."""
+
     plan_id: str
     change_description: str
     framed_requirement: dict[str, Any]
@@ -65,6 +65,7 @@ class ResumeRequest(BaseModel):
 
 class ReviewInitRequest(BaseModel):
     """Initialise a review session: create transcript, return new plan_id."""
+
     base_plan_id: str
     change_description: str
     feedback: str
@@ -78,6 +79,7 @@ class ReviewActionRequest(BaseModel):
         re-advise  -- re-run advisors with feedback, then re-synthesize
         reject     -- discard the plan
     """
+
     plan_id: str
     change_description: str
     framed_requirement: dict[str, Any]
@@ -91,6 +93,7 @@ class ReviewActionRequest(BaseModel):
 class CouncilFeedbackRequest(BaseModel):
     """Request a council review: each advisor reviews the plan, then
     Business+Architect decide which recommendations to keep."""
+
     plan_id: str
     plan_data: dict[str, Any]
 
@@ -101,11 +104,12 @@ class CouncilApplyRequest(BaseModel):
     The user reviews the decision gate output, overrides decisions as
     needed, and submits only the accepted changes for re-synthesis.
     """
+
     plan_id: str
     change_description: str
     framed_requirement: dict[str, Any]
     project_context: dict[str, Any] | None = None
-    accepted_changes: list[str]    # list of recommendation text strings to apply
+    accepted_changes: list[str]  # list of recommendation text strings to apply
     base_plan_id: str | None = None
 
 
@@ -228,14 +232,16 @@ def _parse_framer_json(raw: str) -> dict | None:
 
 async def _force_frame(llm, messages: list[dict[str, str]]) -> dict | None:
     """Force the LLM to produce a framed requirement."""
-    messages.append({
-        "role": "user",
-        "content": (
-            "You have asked enough questions.  Now produce the final "
-            "framed requirement using the 'framed' JSON format.  "
-            "Use all the context gathered so far."
-        ),
-    })
+    messages.append(
+        {
+            "role": "user",
+            "content": (
+                "You have asked enough questions.  Now produce the final "
+                "framed requirement using the 'framed' JSON format.  "
+                "Use all the context gathered so far."
+            ),
+        }
+    )
     raw = await llm.chat(messages)
     return _parse_framer_json(raw)
 
@@ -289,6 +295,7 @@ async def ws_framer(ws: WebSocket) -> None:
             return
         try:
             from code_council.transcript import append_framer_message
+
             append_framer_message(
                 plan_id=plan_id,
                 role="framer",
@@ -306,6 +313,7 @@ async def ws_framer(ws: WebSocket) -> None:
             return
         try:
             from code_council.transcript import append_framer_message
+
             append_framer_message(
                 plan_id=plan_id,
                 role="user",
@@ -322,6 +330,7 @@ async def ws_framer(ws: WebSocket) -> None:
             return
         try:
             from code_council.transcript import set_framed_question
+
             # Store a compact summary as framed_question
             title = framed_req.get("title", "")
             desc = framed_req.get("description", "")
@@ -338,10 +347,12 @@ async def ws_framer(ws: WebSocket) -> None:
         # Wait for initial question
         init_data = await ws.receive_json()
         if init_data.get("type") != "question":
-            await ws.send_json({
-                "type": "error",
-                "message": "Expected initial message with type 'question'",
-            })
+            await ws.send_json(
+                {
+                    "type": "error",
+                    "message": "Expected initial message with type 'question'",
+                }
+            )
             await ws.close()
             return
 
@@ -352,19 +363,23 @@ async def ws_framer(ws: WebSocket) -> None:
         plan_id = init_data.get("plan_id") or None
         if not plan_id:
             from code_council.utils import generate_plan_id
+
             plan_id = generate_plan_id(user_question)
 
         if not user_question:
-            await ws.send_json({
-                "type": "error",
-                "message": "Empty question text",
-            })
+            await ws.send_json(
+                {
+                    "type": "error",
+                    "message": "Empty question text",
+                }
+            )
             await ws.close()
             return
 
         # Create transcript for this framing session
         try:
             from code_council.transcript import init_transcript
+
             init_transcript(
                 plan_id=plan_id,
                 question=user_question,
@@ -392,23 +407,27 @@ async def ws_framer(ws: WebSocket) -> None:
                 # Unparseable -- try to send as a plain question
                 _msg_seq += 1
                 _save_framer_msg(raw, str(_msg_seq))
-                await ws.send_json({
-                    "type": "framer_question",
-                    "question": raw,
-                    "choices": [],
-                    "msg_id": str(_msg_seq),
-                    "plan_id": plan_id,
-                })
+                await ws.send_json(
+                    {
+                        "type": "framer_question",
+                        "question": raw,
+                        "choices": [],
+                        "msg_id": str(_msg_seq),
+                        "plan_id": plan_id,
+                    }
+                )
             elif parsed.get("type") == "framed":
                 # Done -- send the framed requirement
                 framed_req = parsed.get("framed_requirement", parsed)
                 _save_framed(framed_req)
-                await ws.send_json({
-                    "type": "framed",
-                    "framed_requirement": framed_req,
-                    "request_id": request_id,
-                    "plan_id": plan_id,
-                })
+                await ws.send_json(
+                    {
+                        "type": "framed",
+                        "framed_requirement": framed_req,
+                        "request_id": request_id,
+                        "plan_id": plan_id,
+                    }
+                )
                 await ws.close()
                 return
             elif parsed.get("type") == "question":
@@ -416,35 +435,41 @@ async def ws_framer(ws: WebSocket) -> None:
                 q_text = parsed.get("question", "")
                 q_choices = parsed.get("choices", [])
                 _save_framer_msg(q_text, str(_msg_seq), q_choices)
-                await ws.send_json({
-                    "type": "framer_question",
-                    "question": q_text,
-                    "choices": q_choices,
-                    "msg_id": str(_msg_seq),
-                    "plan_id": plan_id,
-                })
+                await ws.send_json(
+                    {
+                        "type": "framer_question",
+                        "question": q_text,
+                        "choices": q_choices,
+                        "msg_id": str(_msg_seq),
+                        "plan_id": plan_id,
+                    }
+                )
             else:
                 # Unknown type -- treat as done if it looks like a requirement
                 if "title" in parsed and "description" in parsed:
                     _save_framed(parsed)
-                    await ws.send_json({
-                        "type": "framed",
-                        "framed_requirement": parsed,
-                        "request_id": request_id,
-                        "plan_id": plan_id,
-                    })
+                    await ws.send_json(
+                        {
+                            "type": "framed",
+                            "framed_requirement": parsed,
+                            "request_id": request_id,
+                            "plan_id": plan_id,
+                        }
+                    )
                     await ws.close()
                     return
 
                 _msg_seq += 1
                 _save_framer_msg(str(parsed), str(_msg_seq))
-                await ws.send_json({
-                    "type": "framer_question",
-                    "question": str(parsed),
-                    "choices": [],
-                    "msg_id": str(_msg_seq),
-                    "plan_id": plan_id,
-                })
+                await ws.send_json(
+                    {
+                        "type": "framer_question",
+                        "question": str(parsed),
+                        "choices": [],
+                        "msg_id": str(_msg_seq),
+                        "plan_id": plan_id,
+                    }
+                )
 
             # Wait for user reply
             pending_msg_id = str(_msg_seq)
@@ -474,12 +499,14 @@ async def ws_framer(ws: WebSocket) -> None:
                             "stories": [],
                         }
                     _save_framed(framed_req)
-                    await ws.send_json({
-                        "type": "framed",
-                        "framed_requirement": framed_req,
-                        "request_id": request_id,
-                        "plan_id": plan_id,
-                    })
+                    await ws.send_json(
+                        {
+                            "type": "framed",
+                            "framed_requirement": framed_req,
+                            "request_id": request_id,
+                            "plan_id": plan_id,
+                        }
+                    )
                     await ws.close()
                     return
 
@@ -509,12 +536,14 @@ async def ws_framer(ws: WebSocket) -> None:
                 "stories": [],
             }
         _save_framed(framed_req)
-        await ws.send_json({
-            "type": "framed",
-            "framed_requirement": framed_req,
-            "request_id": request_id,
-            "plan_id": plan_id,
-        })
+        await ws.send_json(
+            {
+                "type": "framed",
+                "framed_requirement": framed_req,
+                "request_id": request_id,
+                "plan_id": plan_id,
+            }
+        )
         await ws.close()
 
     except WebSocketDisconnect:
@@ -563,10 +592,10 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
         )
 
     async def _generate():
-        from code_council.advisors import run_advisors, discover_advisor_skills
+        from code_council.advisors import discover_advisor_skills, run_advisors
         from code_council.context import ProjectContext
-        from code_council.synthesizer import synthesize_plan
         from code_council.framer import FramedRequirement
+        from code_council.synthesizer import synthesize_plan
 
         plan_id = req.plan_id
         change_description = req.change_description
@@ -597,7 +626,6 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
 
         # Run all advisors in parallel, but emit events as each completes
         # We use individual tasks instead of gather so we can stream results
-        total = len(skills)
         advisor_responses: dict[str, str] = {}
 
         async def _run_one(skill_name: str) -> tuple[str, str]:
@@ -623,10 +651,14 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
 
         # Emit individual advisor completions
         for name, response in advisor_responses.items():
-            yield _sse_event("advisor", "completed", {
-                "name": name,
-                "response": response,
-            })
+            yield _sse_event(
+                "advisor",
+                "completed",
+                {
+                    "name": name,
+                    "response": response,
+                },
+            )
 
         advisor_duration = round(time.monotonic() - t0, 3)
 
@@ -645,13 +677,18 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
             yield _sse_event("session", "error", {"message": f"Synthesis error: {exc}"})
             return
 
-        yield _sse_event("synthesis", "completed", {
-            "plan": plan.model_dump(),
-        })
+        yield _sse_event(
+            "synthesis",
+            "completed",
+            {
+                "plan": plan.model_dump(),
+            },
+        )
 
         # Save the plan
         try:
             from code_council.storage import save_plan
+
             save_plan(
                 plan_id=plan_id,
                 change_description=change_description,
@@ -667,11 +704,15 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
             logger.warning("Failed to save plan: %s", exc)
 
         total_duration = round(time.monotonic() - t0, 3)
-        yield _sse_event("session", "completed", {
-            "plan_id": plan_id,
-            "duration": total_duration,
-            "advisor_duration": advisor_duration,
-        })
+        yield _sse_event(
+            "session",
+            "completed",
+            {
+                "plan_id": plan_id,
+                "duration": total_duration,
+                "advisor_duration": advisor_duration,
+            },
+        )
 
     return StreamingResponse(
         _generate(),
@@ -701,9 +742,9 @@ async def init_review_session(req: ReviewInitRequest) -> dict:
     """
     from code_council.config import get_settings
     from code_council.transcript import (
+        append_framer_message,
         init_transcript,
         load_transcript,
-        append_framer_message,
         set_framed_question,
     )
     from code_council.utils import generate_plan_id
@@ -759,6 +800,7 @@ async def init_review_session(req: ReviewInitRequest) -> dict:
     # transcript didn't have a framed_question.
     framed_requirement = None
     from code_council.storage import load_plan
+
     original_plan = load_plan(req.base_plan_id, settings=settings)
     if original_plan and original_plan.get("framed_requirement"):
         framed_requirement = original_plan["framed_requirement"]
@@ -767,9 +809,7 @@ async def init_review_session(req: ReviewInitRequest) -> dict:
         "plan_id": new_plan_id,
         "base_plan_id": req.base_plan_id,
         "framed_question": (
-            original_transcript.get("framed_question")
-            if original_transcript
-            else None
+            original_transcript.get("framed_question") if original_transcript else None
         ),
         "framed_requirement": framed_requirement,
     }
@@ -803,7 +843,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
         )
 
     async def _generate():
-        from code_council.advisors import run_advisors, discover_advisor_skills
+        from code_council.advisors import discover_advisor_skills, run_advisors
         from code_council.context import ProjectContext
         from code_council.synthesizer import synthesize_plan
 
@@ -819,17 +859,25 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
             return
 
         if req.action != "re-advise":
-            yield _sse_event("session", "error", {
-                "message": f"Unknown review action: {req.action}",
-            })
+            yield _sse_event(
+                "session",
+                "error",
+                {
+                    "message": f"Unknown review action: {req.action}",
+                },
+            )
             return
 
         # -- Re-advise: re-run advisors with feedback -----------------------
 
         if not req.feedback.strip():
-            yield _sse_event("session", "error", {
-                "message": "Feedback is required for re-advise action.",
-            })
+            yield _sse_event(
+                "session",
+                "error",
+                {
+                    "message": "Feedback is required for re-advise action.",
+                },
+            )
             return
 
         # Build project context
@@ -841,11 +889,15 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
         else:
             ctx = ProjectContext(project_path="(none)")
 
-        yield _sse_event("review", "started", {
-            "plan_id": plan_id,
-            "action": "re-advise",
-            "feedback": req.feedback,
-        })
+        yield _sse_event(
+            "review",
+            "started",
+            {
+                "plan_id": plan_id,
+                "action": "re-advise",
+                "feedback": req.feedback,
+            },
+        )
 
         # Discover advisor names
         skills = discover_advisor_skills()
@@ -864,16 +916,24 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 negotiation_feedback=req.feedback,
             )
         except Exception as exc:
-            yield _sse_event("session", "error", {
-                "message": f"Advisor error: {exc}",
-            })
+            yield _sse_event(
+                "session",
+                "error",
+                {
+                    "message": f"Advisor error: {exc}",
+                },
+            )
             return
 
         for name, response in responses.items():
-            yield _sse_event("advisor", "completed", {
-                "name": name,
-                "response": response,
-            })
+            yield _sse_event(
+                "advisor",
+                "completed",
+                {
+                    "name": name,
+                    "response": response,
+                },
+            )
 
         # Re-synthesize
         yield _sse_event("synthesis", "started", {})
@@ -887,19 +947,27 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 llm=llm,
             )
         except Exception as exc:
-            yield _sse_event("session", "error", {
-                "message": f"Synthesis error: {exc}",
-            })
+            yield _sse_event(
+                "session",
+                "error",
+                {
+                    "message": f"Synthesis error: {exc}",
+                },
+            )
             return
 
-        yield _sse_event("synthesis", "completed", {
-            "plan": plan.model_dump(),
-        })
+        yield _sse_event(
+            "synthesis",
+            "completed",
+            {
+                "plan": plan.model_dump(),
+            },
+        )
 
         # Save updated plan
         try:
-            from code_council.storage import save_plan
             from code_council.framer import FramedRequirement
+            from code_council.storage import save_plan
 
             framed = FramedRequirement(**req.framed_requirement)
             save_plan(
@@ -917,10 +985,14 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
             logger.warning("Failed to save reviewed plan: %s", exc)
 
         total_duration = round(time.monotonic() - t0, 3)
-        yield _sse_event("session", "completed", {
-            "plan_id": plan_id,
-            "duration": total_duration,
-        })
+        yield _sse_event(
+            "session",
+            "completed",
+            {
+                "plan_id": plan_id,
+                "duration": total_duration,
+            },
+        )
 
     return StreamingResponse(
         _generate(),
@@ -964,7 +1036,7 @@ async def council_feedback(req: CouncilFeedbackRequest) -> StreamingResponse:
         )
 
     async def _generate():
-        from code_council.advisors import review_plan, decide_changes
+        from code_council.advisors import decide_changes, review_plan
 
         plan_id = req.plan_id
         plan_data = req.plan_data
@@ -980,17 +1052,25 @@ async def council_feedback(req: CouncilFeedbackRequest) -> StreamingResponse:
                 temperature_spread=settings.code_council_advisor_temperature_spread,
             )
         except Exception as exc:
-            yield _sse_event("feedback", "error", {
-                "message": f"Review error: {exc}",
-            })
+            yield _sse_event(
+                "feedback",
+                "error",
+                {
+                    "message": f"Review error: {exc}",
+                },
+            )
             return
 
         # Emit each advisor's review
         for name, review in advisor_reviews.items():
-            yield _sse_event("feedback", "advisor", {
-                "name": name,
-                "review": review,
-            })
+            yield _sse_event(
+                "feedback",
+                "advisor",
+                {
+                    "name": name,
+                    "review": review,
+                },
+            )
 
         # Phase 2: Business + Architect decision gate
         yield _sse_event("feedback", "deciding", {})
@@ -1002,15 +1082,23 @@ async def council_feedback(req: CouncilFeedbackRequest) -> StreamingResponse:
                 llm=llm,
             )
         except Exception as exc:
-            yield _sse_event("feedback", "error", {
-                "message": f"Decision error: {exc}",
-            })
+            yield _sse_event(
+                "feedback",
+                "error",
+                {
+                    "message": f"Decision error: {exc}",
+                },
+            )
             return
 
-        yield _sse_event("feedback", "decision", {
-            "decision": decision,
-            "advisor_reviews": advisor_reviews,
-        })
+        yield _sse_event(
+            "feedback",
+            "decision",
+            {
+                "decision": decision,
+                "advisor_reviews": advisor_reviews,
+            },
+        )
 
     return StreamingResponse(
         _generate(),
@@ -1052,10 +1140,10 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
         )
 
     async def _generate():
-        from code_council.advisors import run_advisors, discover_advisor_skills
+        from code_council.advisors import discover_advisor_skills, run_advisors
         from code_council.context import ProjectContext
-        from code_council.synthesizer import synthesize_plan
         from code_council.framer import FramedRequirement
+        from code_council.synthesizer import synthesize_plan
 
         plan_id = req.plan_id
         change_description = req.change_description
@@ -1064,9 +1152,13 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
         try:
             framed = FramedRequirement(**req.framed_requirement)
         except Exception as exc:
-            yield _sse_event("session", "error", {
-                "message": f"Invalid framed requirement: {exc}",
-            })
+            yield _sse_event(
+                "session",
+                "error",
+                {
+                    "message": f"Invalid framed requirement: {exc}",
+                },
+            )
             return
 
         # Build project context
@@ -1106,16 +1198,24 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 negotiation_feedback=negotiation_feedback,
             )
         except Exception as exc:
-            yield _sse_event("session", "error", {
-                "message": f"Advisor error: {exc}",
-            })
+            yield _sse_event(
+                "session",
+                "error",
+                {
+                    "message": f"Advisor error: {exc}",
+                },
+            )
             return
 
         for name, response in responses.items():
-            yield _sse_event("advisor", "completed", {
-                "name": name,
-                "response": response,
-            })
+            yield _sse_event(
+                "advisor",
+                "completed",
+                {
+                    "name": name,
+                    "response": response,
+                },
+            )
 
         # Re-synthesize
         yield _sse_event("synthesis", "started", {})
@@ -1129,18 +1229,27 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 llm=llm,
             )
         except Exception as exc:
-            yield _sse_event("session", "error", {
-                "message": f"Synthesis error: {exc}",
-            })
+            yield _sse_event(
+                "session",
+                "error",
+                {
+                    "message": f"Synthesis error: {exc}",
+                },
+            )
             return
 
-        yield _sse_event("synthesis", "completed", {
-            "plan": plan.model_dump(),
-        })
+        yield _sse_event(
+            "synthesis",
+            "completed",
+            {
+                "plan": plan.model_dump(),
+            },
+        )
 
         # Save with council_reviewed status
         try:
             from code_council.storage import save_plan
+
             save_plan(
                 plan_id=plan_id,
                 change_description=change_description,
@@ -1156,10 +1265,14 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
             logger.warning("Failed to save council-reviewed plan: %s", exc)
 
         total_duration = round(time.monotonic() - t0, 3)
-        yield _sse_event("session", "completed", {
-            "plan_id": plan_id,
-            "duration": total_duration,
-        })
+        yield _sse_event(
+            "session",
+            "completed",
+            {
+                "plan_id": plan_id,
+                "duration": total_duration,
+            },
+        )
 
     return StreamingResponse(
         _generate(),
@@ -1181,8 +1294,10 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
 async def scan_tree(req: ScanTreeRequest) -> dict:
     """Scan a project directory and return tree + tech stack."""
     from code_council.context import (
-        build_directory_tree, find_config_files,
-        detect_tech_stack, detect_test_patterns,
+        build_directory_tree,
+        detect_tech_stack,
+        detect_test_patterns,
+        find_config_files,
     )
 
     root = Path(req.project_path).resolve()
@@ -1217,10 +1332,7 @@ async def scan_discover(req: ScanDiscoverRequest) -> dict:
     paths = discover_relevant_paths(root, req.change_description, req.max_files)
 
     return {
-        "discovered_files": [
-            {"path": p, "score": s, "is_sensitive": sens}
-            for p, s, sens in paths
-        ],
+        "discovered_files": [{"path": p, "score": s, "is_sensitive": sens} for p, s, sens in paths],
     }
 
 
@@ -1228,9 +1340,12 @@ async def scan_discover(req: ScanDiscoverRequest) -> dict:
 async def scan_approve(req: ScanApproveRequest) -> dict:
     """Read approved files and return their contents + full context."""
     from code_council.context import (
-        read_approved_files, find_config_files,
-        detect_tech_stack, detect_test_patterns,
-        build_directory_tree, ProjectContext,
+        ProjectContext,
+        build_directory_tree,
+        detect_tech_stack,
+        detect_test_patterns,
+        find_config_files,
+        read_approved_files,
     )
 
     root = Path(req.project_path).resolve()
@@ -1243,9 +1358,7 @@ async def scan_approve(req: ScanApproveRequest) -> dict:
     # Read config files if specified
     all_configs = find_config_files(root)
     if req.config_files:
-        config_contents = {
-            k: v for k, v in all_configs.items() if k in req.config_files
-        }
+        config_contents = {k: v for k, v in all_configs.items() if k in req.config_files}
     else:
         config_contents = all_configs
 
@@ -1277,6 +1390,7 @@ async def scan_approve(req: ScanApproveRequest) -> dict:
 async def list_plans(limit: int = 20) -> list[dict]:
     """List recent plans."""
     from code_council.storage import list_recent_plans
+
     return list_recent_plans(limit=limit)
 
 
@@ -1284,6 +1398,7 @@ async def list_plans(limit: int = 20) -> list[dict]:
 async def get_plan(plan_id: str) -> dict:
     """Get a full plan by ID."""
     from code_council.storage import load_plan
+
     data = load_plan(plan_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -1307,6 +1422,7 @@ async def list_transcripts(limit: int = 20) -> list:
 async def get_transcript(plan_id: str) -> dict:
     """Get a full transcript by ID."""
     from code_council.transcript import load_transcript
+
     data = load_transcript(plan_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Transcript not found")

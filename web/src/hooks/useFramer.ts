@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { FramerMessage, FramerStatus, FramedRequirement } from "../types"
 
 export interface UseFramerResult {
@@ -29,8 +29,12 @@ export function useFramer(): UseFramerResult {
   const statusRef = useRef<FramerStatus>("idle")
 
   // Keep refs in sync with state for use inside callbacks
-  messagesRef.current = messages
-  statusRef.current = status
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
 
   const startFraming = useCallback((question: string, existingPlanId?: string) => {
     // Close any existing connection
