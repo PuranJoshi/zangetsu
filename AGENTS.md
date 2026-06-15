@@ -1,8 +1,8 @@
 # Code Council -- Agent Instructions
 
-> **Keeping docs in sync:** Before making changes, check `CONTEXT.md` and
-> `docs/code-council-plan.md` for the current architecture and design.
-> After making changes, update `CONTEXT.md`, `README.md`, and this file
+> **Keeping docs in sync:** Before making changes, check `docs/ARCHITECTURE.md`
+> for the current architecture and design.
+> After making changes, update `docs/ARCHITECTURE.md`, `README.md`, and this file
 > to reflect the new state. Run `pytest` to verify nothing is broken.
 
 ## What is Code Council?
@@ -121,7 +121,5 @@ even if the pipeline crashes mid-session.
 
 ## Related Documentation
 
-- `CONTEXT.md` -- Full project context (architecture, modules, data models, dependencies)
+- `docs/ARCHITECTURE.md` -- Full project architecture (modules, data models, dependencies)
 - `README.md` -- Setup and usage instructions
-- `docs/code-council-plan.md` -- Original design document (note: references "5 advisors"
-  from the original design; the codebase now has 6 with the addition of Business Advisor)

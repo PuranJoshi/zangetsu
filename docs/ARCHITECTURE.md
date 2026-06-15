@@ -1,18 +1,12 @@
-# Code Council -- Project Context
+# Code Council -- Architecture
 
 > This document is the single source of truth for understanding the Code Council
 > codebase. Keep it in sync with the code whenever modules, commands, or
 > architecture change.
 >
-> **Before making changes:** Check this file and `docs/code-council-plan.md` for
-> the current architecture and original design intent.
+> **Before making changes:** Check this file for the current architecture.
 > **After making changes:** Update this file, `README.md`, and `AGENTS.md` to
 > reflect the new state. Run `pytest` to verify nothing is broken.
->
-> **Note on `docs/code-council-plan.md`:** The original design document references
-> "5 advisors" throughout. The codebase now has 6 (Business Advisor was added
-> after the design doc was written). Treat this file as the current source of
-> truth and the design doc as a historical reference.
 
 ## Overview
 
@@ -37,11 +31,10 @@ copied into an AI coding agent (OpenCode, Cursor, GitHub Copilot) for execution.
 ```
 zangetsu/
 ├── AGENTS.md                        # AI agent instructions (for OpenCode/Cursor/Copilot)
-├── CONTEXT.md                       # This file -- full project context
 ├── README.md                        # Project overview and setup instructions
 ├── pyproject.toml                   # Build config, dependencies, CLI entry points
 ├── docs/
-│   └── code-council-plan.md         # Full design document / implementation plan (~4100 lines)
+│   └── ARCHITECTURE.md              # This file -- full project architecture
 ├── code_council/                    # Main Python package
 │   ├── __init__.py                  # Package init, __version__ = "0.1.0"
 │   ├── cli.py                      # Typer CLI entry point (bankai command + subcommands + serve)
@@ -628,7 +621,7 @@ API calls, 231 tests total). Run with `pytest`.
 
 ## Not Yet Implemented
 
-The following are described in `docs/code-council-plan.md` but have no code yet:
+The following are planned but have no code yet:
 
 - **`mcp_server.py`** -- MCP server for direct AI tool integration
 - **`negotiation.py`** -- Feasibility negotiation loop between council and AI tool

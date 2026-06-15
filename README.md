@@ -136,21 +136,18 @@ ruff check --fix code_council/   # auto-fix
 
 | Document | Purpose |
 |---|---|
-| `CONTEXT.md` | Full project context -- architecture, modules, data models, dependencies |
+| `docs/ARCHITECTURE.md` | Full project architecture -- modules, data models, dependencies |
 | `AGENTS.md` | AI agent instructions for Code Council |
-| `docs/code-council-plan.md` | Original design document and implementation plan |
-
-> **Note:** `docs/code-council-plan.md` is the original design document written
-> before the Business Advisor was added. It references "5 advisors" throughout;
-> the codebase now has 6. Treat `CONTEXT.md` as the current source of truth and
-> `docs/code-council-plan.md` as the historical design reference.
+| `CONTRIBUTING.md` | Contribution guidelines and development workflow |
+| `CODE_OF_CONDUCT.md` | Community standards and expectations |
 
 ## Keeping Documentation in Sync
 
 When making changes to the codebase, update these files to stay in sync:
 
-1. **Before making changes:** Read `CONTEXT.md` and `docs/code-council-plan.md`
-   to understand the current architecture and original design intent.
-2. **After making changes:** Update `CONTEXT.md`, `README.md`, and `AGENTS.md`
-   to reflect the new state (line counts, module descriptions, commands, etc.).
+1. **Before making changes:** Read `docs/ARCHITECTURE.md` to understand the
+   current architecture.
+2. **After making changes:** Update `docs/ARCHITECTURE.md`, `README.md`, and
+   `AGENTS.md` to reflect the new state (line counts, module descriptions,
+   commands, etc.).
 3. **Run tests:** Always run `pytest` after changes to verify nothing is broken.
