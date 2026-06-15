@@ -13,6 +13,7 @@ import { AdvisorsPanel } from "./components/AdvisorsPanel"
 import { PipelineTracker } from "./components/PipelineTracker"
 import { PlanView } from "./components/PlanView"
 import { PlanHistory } from "./components/PlanHistory"
+import { PlanSidebar } from "./components/PlanSidebar"
 import { ErrorDisplay } from "./components/ErrorDisplay"
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,7 @@ export default function App() {
   const [reviewVersion, setReviewVersion] = useState(1)
   const [isReframing, setIsReframing] = useState(false)
   const [reAdviseError, setReAdviseError] = useState<string | null>(null)
+  const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0)
 
   // Track whether the user has an active session (not idle input)
   const hasActiveSession = phase !== "input"
@@ -233,6 +235,7 @@ export default function App() {
   // Watch for council completion (from initial run or re-advise)
   if (council.session.stage === "completed" && phase === "advising") {
     setPhase("done")
+    setSidebarRefreshKey((k) => k + 1)
   }
 
   // ---------------------------------------------------------------------------
@@ -391,6 +394,7 @@ export default function App() {
         // Replace the current plan with the council-reviewed one
         council.loadFromPlan(newPlan)
         councilFeedback.reset()
+        setSidebarRefreshKey((k) => k + 1)
       }
     },
     [planId, rawDescription, framedRequirement, projectContext, basePlanId, councilFeedback, council]
@@ -443,6 +447,43 @@ export default function App() {
       route.navigate("/")
     },
     [council, route]
+  )
+
+  // ---------------------------------------------------------------------------
+  // Sidebar: click a plan to load it into the session
+  // ---------------------------------------------------------------------------
+
+  const handleSidebarSelectPlan = useCallback(
+    async (selectedPlanId: string) => {
+      try {
+        const res = await fetch(`/api/plans/${selectedPlanId}`)
+        if (!res.ok) return
+        const data = await res.json()
+
+        const planData = data.plan as ChangePlan
+        if (!planData) return
+
+        planData.plan_id = planData.plan_id || data.plan_id || selectedPlanId
+        planData.change_description =
+          planData.change_description || data.change_description || ""
+        if (!planData.base_plan_id && data.base_plan_id) {
+          planData.base_plan_id = data.base_plan_id
+        }
+        if (
+          (!planData.raw_advisor_responses ||
+            Object.keys(planData.raw_advisor_responses).length === 0) &&
+          data.advisor_responses
+        ) {
+          planData.raw_advisor_responses = data.advisor_responses
+        }
+
+        const framedReq = data.framed_requirement as FramedRequirement | undefined
+        handleLoadPlan(planData, data.change_description || "", framedReq)
+      } catch (err) {
+        console.error("Failed to load plan from sidebar:", err)
+      }
+    },
+    [handleLoadPlan]
   )
 
   // ---------------------------------------------------------------------------
@@ -528,121 +569,131 @@ export default function App() {
         </nav>
       </header>
 
-      {/* Main content area */}
-      <main className="flex-1">
-        {isHistoryView ? (
-          <PlanHistory
-            onLoadPlan={handleLoadPlan}
-          />
-        ) : (
-          <>
-            {/* Phase: Input */}
-            {phase === "input" && (
-              <DescriptionInput onSubmit={handleDescriptionSubmit} onLoadTranscript={handleLoadTranscript} />
-            )}
+      {/* Body: sidebar + main content */}
+      <div className="flex flex-1 min-h-0">
+        {/* Plans sidebar -- always visible */}
+        <PlanSidebar
+          activePlanId={planId}
+          onSelectPlan={handleSidebarSelectPlan}
+          refreshKey={sidebarRefreshKey}
+        />
 
-            {/* Phase: Framing */}
-            {phase === "framing" && (
-              <FramerWizard
-                messages={framer.messages}
-                status={framer.status}
-                error={framer.error}
-                onReply={framer.sendReply}
-                onSkip={framer.skipFraming}
-              />
-            )}
+        {/* Main content area */}
+        <main className="flex-1 min-w-0 overflow-y-auto">
+          {isHistoryView ? (
+            <PlanHistory
+              onLoadPlan={handleLoadPlan}
+            />
+          ) : (
+            <>
+              {/* Phase: Input */}
+              {phase === "input" && (
+                <DescriptionInput onSubmit={handleDescriptionSubmit} onLoadTranscript={handleLoadTranscript} />
+              )}
 
-            {/* Phase: Reviewing framed requirement */}
-            {phase === "reviewing" && framedRequirement && (
-              <RequirementReview
-                requirement={framedRequirement}
-                onProceed={handleProceed}
-                onCorrect={handleCorrect}
-                isReframing={isReframing}
-              />
-            )}
+              {/* Phase: Framing */}
+              {phase === "framing" && (
+                <FramerWizard
+                  messages={framer.messages}
+                  status={framer.status}
+                  error={framer.error}
+                  onReply={framer.sendReply}
+                  onSkip={framer.skipFraming}
+                />
+              )}
 
-            {/* Phase: Project scanning */}
-            {phase === "scanning" && (
-              <ProjectScanner
-                treeResult={scanner.treeResult}
-                discoveredFiles={scanner.discoveredFiles}
-                isScanning={
-                  scanner.phase === "scanning" ||
-                  scanner.phase === "discovering" ||
-                  scanner.phase === "approving"
-                }
-                error={scanner.error}
-                onScanPath={scanner.scanTree}
-                onDiscover={scanner.discoverFiles}
-                onApprove={scanner.approveFiles}
-                onSkip={handleScanSkip}
-                changeDescription={rawDescription}
-              />
-            )}
+              {/* Phase: Reviewing framed requirement */}
+              {phase === "reviewing" && framedRequirement && (
+                <RequirementReview
+                  requirement={framedRequirement}
+                  onProceed={handleProceed}
+                  onCorrect={handleCorrect}
+                  isReframing={isReframing}
+                />
+              )}
 
-            {/* Phase: Advisors running */}
-            {phase === "advising" && (
-              <>
-                <AdvisorsPanel
-                  advisorNames={council.session.advisorNames}
-                  advisorResponses={council.session.advisorResponses}
-                  isComplete={
-                    council.session.stage === "synthesizing" ||
-                    council.session.stage === "completed"
+              {/* Phase: Project scanning */}
+              {phase === "scanning" && (
+                <ProjectScanner
+                  treeResult={scanner.treeResult}
+                  discoveredFiles={scanner.discoveredFiles}
+                  isScanning={
+                    scanner.phase === "scanning" ||
+                    scanner.phase === "discovering" ||
+                    scanner.phase === "approving"
                   }
+                  error={scanner.error}
+                  onScanPath={scanner.scanTree}
+                  onDiscover={scanner.discoverFiles}
+                  onApprove={scanner.approveFiles}
+                  onSkip={handleScanSkip}
+                  changeDescription={rawDescription}
                 />
+              )}
 
-                {council.session.stage === "synthesizing" && (
-                  <div className="text-center py-4">
-                    <span className="text-sm text-text-muted flex items-center justify-center gap-1">
-                      <span className="animate-pulse-dot">.</span>
-                      <span className="animate-pulse-dot" style={{ animationDelay: "200ms" }}>.</span>
-                      <span className="animate-pulse-dot" style={{ animationDelay: "400ms" }}>.</span>
-                      <span className="ml-1">Synthesizing plan...</span>
-                    </span>
-                  </div>
-                )}
-
-                {council.session.stage === "error" && (
-                  <ErrorDisplay
-                    message={council.session.error || "An error occurred during advising"}
-                    onRetry={() => startAdvisors(projectContext)}
-                    onDismiss={handleNewSession}
+              {/* Phase: Advisors running */}
+              {phase === "advising" && (
+                <>
+                  <AdvisorsPanel
+                    advisorNames={council.session.advisorNames}
+                    advisorResponses={council.session.advisorResponses}
+                    isComplete={
+                      council.session.stage === "synthesizing" ||
+                      council.session.stage === "completed"
+                    }
                   />
-                )}
-              </>
-            )}
 
-            {/* Phase: Plan complete */}
-            {phase === "done" && reAdviseError && (
-              <div className="max-w-6xl mx-auto w-full px-6 pt-4">
-                <ErrorDisplay
-                  message={reAdviseError}
-                  compact
-                  onRetry={() => setReAdviseError(null)}
-                  onDismiss={() => setReAdviseError(null)}
+                  {council.session.stage === "synthesizing" && (
+                    <div className="text-center py-4">
+                      <span className="text-sm text-text-muted flex items-center justify-center gap-1">
+                        <span className="animate-pulse-dot">.</span>
+                        <span className="animate-pulse-dot" style={{ animationDelay: "200ms" }}>.</span>
+                        <span className="animate-pulse-dot" style={{ animationDelay: "400ms" }}>.</span>
+                        <span className="ml-1">Synthesizing plan...</span>
+                      </span>
+                    </div>
+                  )}
+
+                  {council.session.stage === "error" && (
+                    <ErrorDisplay
+                      message={council.session.error || "An error occurred during advising"}
+                      onRetry={() => startAdvisors(projectContext)}
+                      onDismiss={handleNewSession}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* Phase: Plan complete */}
+              {phase === "done" && reAdviseError && (
+                <div className="max-w-6xl mx-auto w-full px-6 pt-4">
+                  <ErrorDisplay
+                    message={reAdviseError}
+                    compact
+                    onRetry={() => setReAdviseError(null)}
+                    onDismiss={() => setReAdviseError(null)}
+                  />
+                </div>
+              )}
+              {phase === "done" && council.session.plan && (
+                <PlanView
+                  plan={council.session.plan}
+                  duration={council.session.duration}
+                  onReAdvise={handleReAdvise}
+                  onReFrame={handleReFrame}
+                  isReviewing={council.isRunning}
+                  onCouncilReview={handleCouncilReview}
+                  councilFeedback={councilFeedback.state}
+                  isCouncilReviewing={councilFeedback.isRunning}
+                  onApplyCouncilChanges={handleApplyCouncilChanges}
+                  onDismissCouncilReview={handleDismissCouncilReview}
+                  isApplyingCouncilChanges={councilFeedback.isApplying}
                 />
-              </div>
-            )}
-            {phase === "done" && council.session.plan && (
-              <PlanView
-                plan={council.session.plan}
-                duration={council.session.duration}
-                onReAdvise={handleReAdvise}
-                onReFrame={handleReFrame}
-                isReviewing={council.isRunning}
-                onCouncilReview={handleCouncilReview}
-                councilFeedback={councilFeedback.state}
-                isCouncilReviewing={councilFeedback.isRunning}
-                onApplyCouncilChanges={handleApplyCouncilChanges}
-                onDismissCouncilReview={handleDismissCouncilReview}
-                isApplyingCouncilChanges={councilFeedback.isApplying}
-              />
-            )}
-          </>
-        )}
-      </main>
+              )}
+            </>
+          )}
+        </main>
+      </div>
     </>
   )
 }
