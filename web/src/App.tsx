@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from "react"
 import type { FramedRequirement, ProjectContext, ChangePlan } from "./types"
 import { useFramer } from "./hooks/useFramer"
 import { useCouncilStream } from "./hooks/useCouncilStream"
+import { useCouncilFeedback } from "./hooks/useCouncilFeedback"
 import { useProjectScan } from "./hooks/useProjectScan"
 import { useRoute } from "./hooks/useRoute"
 import { DescriptionInput } from "./components/DescriptionInput"
@@ -51,6 +52,7 @@ export default function App() {
   // Hooks
   const framer = useFramer()
   const council = useCouncilStream()
+  const councilFeedback = useCouncilFeedback()
   const scanner = useProjectScan()
 
   // Guard against duplicate phase transitions during a single render
@@ -366,6 +368,15 @@ export default function App() {
   }, [rawDescription, framer, framedRequirement])
 
   // ---------------------------------------------------------------------------
+  // Council review: all advisors review the plan, Business+Architect decide
+  // ---------------------------------------------------------------------------
+
+  const handleCouncilReview = useCallback(() => {
+    if (!council.session.plan || !planId) return
+    councilFeedback.requestFeedback(planId, council.session.plan)
+  }, [council.session.plan, planId, councilFeedback])
+
+  // ---------------------------------------------------------------------------
   // Navigation: return to session vs new session
   // ---------------------------------------------------------------------------
 
@@ -380,9 +391,10 @@ export default function App() {
     setIsReframing(false)
     setReAdviseError(null)
     council.reset()
+    councilFeedback.reset()
     scanner.reset()
     route.navigate("/")
-  }, [council, scanner, route])
+  }, [council, councilFeedback, scanner, route])
 
   // ---------------------------------------------------------------------------
   // Load a plan from history into the current session
@@ -596,6 +608,9 @@ export default function App() {
                 onReAdvise={handleReAdvise}
                 onReFrame={handleReFrame}
                 isReviewing={council.isRunning}
+                onCouncilReview={handleCouncilReview}
+                councilFeedback={councilFeedback.state}
+                isCouncilReviewing={councilFeedback.isRunning}
               />
             )}
           </>

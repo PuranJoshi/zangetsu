@@ -88,6 +88,13 @@ class ReviewActionRequest(BaseModel):
     base_plan_id: str | None = None  # original plan being re-advised
 
 
+class CouncilFeedbackRequest(BaseModel):
+    """Request a council review: each advisor reviews the plan, then
+    Business+Architect decide which recommendations to keep."""
+    plan_id: str
+    plan_data: dict[str, Any]
+
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
@@ -899,6 +906,96 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
         yield _sse_event("session", "completed", {
             "plan_id": plan_id,
             "duration": total_duration,
+        })
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# SSE: council feedback (all advisors review plan + decision gate)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/council/feedback")
+async def council_feedback(req: CouncilFeedbackRequest) -> StreamingResponse:
+    """Each advisor reviews the synthesized plan, then Business+Architect
+    decide which recommendations to accept, defer, or drop.
+
+    SSE events:
+        feedback/started       -- review phase begins
+        feedback/advisor       -- one advisor's review completed
+        feedback/deciding      -- decision gate phase begins
+        feedback/decision      -- final decision with verdicts
+        feedback/error         -- error during review
+    """
+    try:
+        from code_council.config import get_settings
+        from code_council.llm import get_llm
+
+        settings = get_settings()
+        settings.require_langdock()
+        llm = get_llm(settings)
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(exc)},
+        )
+
+    async def _generate():
+        from code_council.advisors import review_plan, decide_changes
+
+        plan_id = req.plan_id
+        plan_data = req.plan_data
+
+        yield _sse_event("feedback", "started", {"plan_id": plan_id})
+
+        # Phase 1: Each advisor reviews the plan in parallel
+        try:
+            advisor_reviews, timing = await review_plan(
+                plan_data=plan_data,
+                llm=llm,
+                plan_id=plan_id,
+                temperature_spread=settings.code_council_advisor_temperature_spread,
+            )
+        except Exception as exc:
+            yield _sse_event("feedback", "error", {
+                "message": f"Review error: {exc}",
+            })
+            return
+
+        # Emit each advisor's review
+        for name, review in advisor_reviews.items():
+            yield _sse_event("feedback", "advisor", {
+                "name": name,
+                "review": review,
+            })
+
+        # Phase 2: Business + Architect decision gate
+        yield _sse_event("feedback", "deciding", {})
+
+        try:
+            decision = await decide_changes(
+                plan_data=plan_data,
+                advisor_reviews=advisor_reviews,
+                llm=llm,
+            )
+        except Exception as exc:
+            yield _sse_event("feedback", "error", {
+                "message": f"Decision error: {exc}",
+            })
+            return
+
+        yield _sse_event("feedback", "decision", {
+            "decision": decision,
+            "advisor_reviews": advisor_reviews,
         })
 
     return StreamingResponse(

@@ -209,3 +209,41 @@ export interface TranscriptSummary {
   has_framed_question: boolean
   message_count: number
 }
+
+// ---------------------------------------------------------------------------
+// Council feedback (advisor plan review + decision gate)
+// ---------------------------------------------------------------------------
+
+export interface AdvisorReview {
+  name: string
+  review: string
+}
+
+export interface RecommendationDecision {
+  advisor: string
+  recommendation: string
+  priority: "HIGH" | "MEDIUM" | "LOW"
+  decision: "ACCEPT" | "DEFER" | "DROP"
+  reason: string
+}
+
+export interface CouncilDecision {
+  verdict: "PROCEED" | "REVISE"
+  rationale: string
+  decisions: RecommendationDecision[]
+  accepted_changes_summary: string
+}
+
+export type CouncilFeedbackStage =
+  | "idle"
+  | "reviewing"
+  | "deciding"
+  | "completed"
+  | "error"
+
+export interface CouncilFeedbackState {
+  stage: CouncilFeedbackStage
+  advisorReviews: AdvisorReview[]
+  decision: CouncilDecision | null
+  error: string | null
+}

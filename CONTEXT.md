@@ -64,7 +64,8 @@ zangetsu/
 │       ├── business.md             # Business & Impact Advisor -- value, scope, tough questions
 │       ├── architect.md            # Architect Advisor -- structure, patterns, coupling
 │       ├── risk.md                 # Risk Advisor -- what could break, rollback, blast radius
-│       └── synthesizer.md          # Plan Synthesizer -- merges all advisor outputs, enforces quality principles
+│       ├── synthesizer.md          # Plan Synthesizer -- merges all advisor outputs, enforces quality principles
+│       └── decision_gate.md       # Decision Gate -- Business+Architect decide on advisor recommendations
 ├── web/                             # React + TypeScript web UI (Vite + Tailwind)
 │   ├── package.json                 # Dependencies: react, react-markdown, tailwindcss
 │   ├── vite.config.ts               # Dev server (port 5176), proxy to API (port 8766)
@@ -77,6 +78,7 @@ zangetsu/
 │       ├── hooks/
 │       │   ├── useFramer.ts         # WebSocket hook for framer interview
 │       │   ├── useCouncilStream.ts  # SSE hook for advisor + synthesis pipeline
+│       │   ├── useCouncilFeedback.ts # SSE hook for council review (plan feedback + decision gate)
 │       │   ├── useProjectScan.ts    # REST hook for project scanning flow
 │       │   └── useRoute.ts          # Minimal History API router (/ and /history only)
 │       └── components/
@@ -89,6 +91,7 @@ zangetsu/
 │           ├── PipelineTracker.tsx   # Race-track progress bar (inline in header)
 │           ├── PlanView.tsx          # Step 6: synthesized plan (tabbed layout, sticky footer)
 │           ├── PlanHistory.tsx       # Plan list / history view (detail via component state)
+│           ├── CouncilReviewPanel.tsx # Council review: advisor feedback + decision gate display
 │           ├── ErrorDisplay.tsx      # Reusable error component (retry/dismiss, compact variant)
 │           └── MarkdownContent.tsx   # react-markdown wrapper
 └── tests/                          # Test suite (pytest + pytest-asyncio)
@@ -178,6 +181,22 @@ The review gate lets the user inspect the synthesized plan and choose:
 
 The web UI provides the same review actions via buttons on the plan view,
 powered by the `POST /council/review` SSE endpoint.
+
+### Council Review (feedback loop)
+
+After synthesis, the user can click **Council Review** to get a stakeholder
+feedback loop on the final plan:
+
+1. All 6 advisors review the plan from their perspective. Each returns
+   either `PROCEED` (plan is sound) or a list of prioritised recommendations.
+2. A **Decision Gate** (Business + Architect combined) reviews all
+   recommendations and decides for each: `ACCEPT`, `DEFER`, or `DROP`.
+   Not all recommendations make sense -- the decision gate is opinionated.
+3. The result is displayed as a panel on the plan view: advisor reviews,
+   then the final verdict (`PROCEED` or `REVISE`) with accepted changes.
+
+This is powered by `POST /council/feedback` (SSE) which calls
+`review_plan()` and `decide_changes()` in `advisors.py`.
 
 ### Re-advise from history
 
@@ -308,13 +327,18 @@ collects answers for the entire batch of questions locally (no LLM call
 between questions), then makes one LLM call with all answers to re-evaluate.
 Hard cap of `MAX_CLARIFICATION_BATCHES` (3) prevents infinite loops.
 
-### `advisors.py` (455 lines)
-Advisor skill registry and parallel execution engine.
+### `advisors.py` (~650 lines)
+Advisor skill registry, parallel execution engine, and council review.
 - Auto-discovers advisor skills from `skills/*.md` files
 - Parses YAML frontmatter for config (temperature_rank, seed_offset, model override)
 - Assigns evenly spaced temperatures across advisors (default range: 0.6--1.0)
 - Generates deterministic seeds from SHA-256(plan_id) + offset
 - Runs all advisors in parallel via `asyncio.gather()`
+- `review_plan()` -- each advisor reviews the synthesized plan and returns
+  PROCEED or prioritised recommendations
+- `decide_changes()` -- Business+Architect decision gate reviews all advisor
+  recommendations and decides ACCEPT/DEFER/DROP for each
+- `discover_decision_gate_skill()` -- loads the decision gate skill from skills/
 
 ### `synthesizer.py` (219 lines)
 Plan synthesis -- Phase 4. Takes all advisor responses and produces a single
@@ -382,6 +406,7 @@ The body contains the system prompt for that advisor.
 | `risk.md` | advisor | 5 | Breaking changes, backward compat, rollback |
 | `framer.md` | framer | -- | Work classification, acceptance criteria |
 | `synthesizer.md` | synthesizer | -- | Conflict resolution, merged actionable plan, enforces self-documenting code, test pyramid, coverage |
+| `decision_gate.md` | decision_gate | -- | Business+Architect decision on advisor plan review recommendations |
 
 Adding a new advisor = dropping a new `.md` file in `skills/` with the correct
 frontmatter. No code changes needed.

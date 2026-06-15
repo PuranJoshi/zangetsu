@@ -1,6 +1,7 @@
 import { useState } from "react"
-import type { ChangePlan, ImplementationStep, IncrementalChange } from "../types"
+import type { ChangePlan, CouncilFeedbackState, ImplementationStep, IncrementalChange } from "../types"
 import { MarkdownContent } from "./MarkdownContent"
+import { CouncilReviewPanel } from "./CouncilReviewPanel"
 
 interface Props {
   plan: ChangePlan
@@ -15,6 +16,12 @@ interface Props {
   onBack?: () => void
   /** History detail: load this plan into an active session. */
   onLoadIntoSession?: () => void
+  /** Called when the user requests council feedback on the plan. */
+  onCouncilReview?: () => void
+  /** Council feedback state (advisor reviews + decision gate). */
+  councilFeedback?: CouncilFeedbackState | null
+  /** Whether a council review is in progress. */
+  isCouncilReviewing?: boolean
 }
 
 // ── Collapsible panel ──────────────────────────────────────────────────────
@@ -312,6 +319,7 @@ function ImplementationTabs({
 export function PlanView({
   plan, duration, onReAdvise, onReFrame, isReviewing,
   onBack, onLoadIntoSession,
+  onCouncilReview, councilFeedback, isCouncilReviewing,
 }: Props) {
   const [copied, setCopied] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
@@ -446,6 +454,13 @@ export function PlanView({
       <ImplementationTabs plan={plan} />
 
       {/* ================================================================
+          COUNCIL REVIEW (advisor feedback + decision gate)
+          ================================================================ */}
+      {councilFeedback && councilFeedback.stage !== "idle" && (
+        <CouncilReviewPanel feedback={councilFeedback} />
+      )}
+
+      {/* ================================================================
           ACTION BAR (sticky footer)
           ================================================================ */}
       <div className="sticky bottom-0 bg-surface border-t border-border pt-3 pb-4 -mx-6 px-6
@@ -477,6 +492,18 @@ export function PlanView({
                            hover:bg-accent/10 transition-colors"
               >
                 Load into session
+              </button>
+            )}
+            {onCouncilReview && (
+              <button
+                onClick={onCouncilReview}
+                disabled={isCouncilReviewing || isReviewing}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-medium
+                           border border-purple-500/30 text-purple-600 dark:text-purple-400
+                           hover:bg-purple-500/10 transition-colors
+                           disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isCouncilReviewing ? "Reviewing..." : "Council Review"}
               </button>
             )}
           </div>

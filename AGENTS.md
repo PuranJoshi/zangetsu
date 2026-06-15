@@ -40,7 +40,12 @@ bankai "Want to build a cash deposit feature"
    structured plan with implementation steps, affected files, acceptance
    criteria, risk level, and effort estimate.
 
-5. **Output** -- The plan is printed to the terminal (or as JSON). Copy it
+5. **Council Review** (optional) -- After synthesis, all advisors review
+   the plan and return PROCEED or prioritised recommendations. Business &
+   Architect act as the decision gate, accepting, deferring, or dropping
+   each recommendation. Not all advice makes sense -- they are opinionated.
+
+6. **Output** -- The plan is printed to the terminal (or as JSON). Copy it
    into your AI coding agent (OpenCode, Cursor, GitHub Copilot).
 
 ## Commands
@@ -89,6 +94,7 @@ model override. Adding a new advisor = dropping a new `.md` file.
 | `architect.md` | advisor | (configurable) |
 | `risk.md` | advisor | (default) |
 | `synthesizer.md` | synthesizer | (default) |
+| `decision_gate.md` | decision_gate | (default) |
 | `framer.md` | framer | (default) |
 
 ## Configuration

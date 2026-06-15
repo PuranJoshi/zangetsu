@@ -453,3 +453,245 @@ async def run_advisors(
     timing = {"start": t0, "duration": round(duration, 3)}
 
     return advisor_responses, advisor_params, timing
+
+
+# ---------------------------------------------------------------------------
+# Discover decision gate skill
+# ---------------------------------------------------------------------------
+
+
+def discover_decision_gate_skill(
+    skills_dir: Path | None = None,
+) -> str:
+    """Load the decision gate skill (type: decision_gate) from skills/.
+
+    Returns the Markdown body of the first enabled decision_gate file,
+    or an empty string if none found.
+    """
+    skills_dir = skills_dir or _SKILLS_DIR
+    if not skills_dir.is_dir():
+        return ""
+
+    for path in sorted(skills_dir.glob("*.md")):
+        try:
+            text = path.read_text()
+        except OSError:
+            continue
+
+        frontmatter, body = _parse_frontmatter(text)
+        if (
+            frontmatter.get("type") == "decision_gate"
+            and frontmatter.get("enabled", True)
+        ):
+            return body
+
+    logger.warning("No decision gate skill found in %s", skills_dir)
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Council review: advisors review the synthesized plan
+# ---------------------------------------------------------------------------
+
+
+def _plan_review_prompt(
+    skill: AdvisorSkill,
+    plan_summary: str,
+) -> str:
+    """Build a prompt for an advisor to review a synthesized plan."""
+    parts = []
+
+    if skill.skill_text:
+        parts.append(f"## Your Advisor Skill\n\n{skill.skill_text}\n\n---\n")
+
+    parts.append(f"{skill.role_description}\n\n")
+    parts.append(
+        "A synthesized implementation plan has been produced. Review it "
+        "from your specific perspective.\n\n"
+        "---\n"
+        f"{plan_summary}\n"
+        "---\n\n"
+        "If the plan is sound from your perspective, respond with "
+        "exactly: PROCEED\n\n"
+        "If you have concerns, list them as prioritised recommendations. "
+        "For each recommendation:\n"
+        "- **Priority**: HIGH / MEDIUM / LOW\n"
+        "- **Recommendation**: What to change and why\n\n"
+        "Be specific to THIS plan. Do not repeat what the plan already "
+        "covers. Only raise issues the plan missed or got wrong.\n\n"
+        "Keep your response under 200 words. No preamble."
+    )
+    return "\n".join(parts)
+
+
+def _format_plan_for_review(plan_data: dict[str, Any]) -> str:
+    """Format a ChangePlan dict into a text summary for advisor review."""
+    lines = [
+        f"# {plan_data.get('title', 'Untitled Plan')}",
+        "",
+        plan_data.get("summary", ""),
+        "",
+    ]
+
+    steps = plan_data.get("implementation_steps", [])
+    if steps:
+        lines.append("## Implementation Steps")
+        lines.append("")
+        for step in steps:
+            deps = step.get("depends_on", [])
+            dep_str = f" (depends on: {deps})" if deps else ""
+            lines.append(
+                f"{step.get('order', '?')}. **{step.get('file_path', '?')}** "
+                f"({step.get('action', '?')}){dep_str}"
+            )
+            lines.append(f"   {step.get('description', '')}")
+            lines.append("")
+
+    criteria = plan_data.get("acceptance_criteria", [])
+    if criteria:
+        lines.append("## Acceptance Criteria")
+        lines.append("")
+        for ac in criteria:
+            lines.append(f"- {ac}")
+        lines.append("")
+
+    for key, label in [
+        ("architecture_notes", "Architecture Notes"),
+        ("security_notes", "Security Notes"),
+        ("quality_notes", "Quality Notes"),
+        ("risk_assessment", "Risk Assessment"),
+        ("execution_strategy", "Execution Strategy"),
+    ]:
+        val = plan_data.get(key, "")
+        if val:
+            lines.append(f"## {label}")
+            lines.append("")
+            lines.append(val)
+            lines.append("")
+
+    lines.append(
+        f"Risk: {plan_data.get('risk_level', '?')} | "
+        f"Effort: {plan_data.get('estimated_effort', '?')}"
+    )
+    return "\n".join(lines)
+
+
+async def review_plan(
+    plan_data: dict[str, Any],
+    llm: LLMClient,
+    plan_id: str,
+    temperature_spread: float = 0.4,
+    skills_dir: Path | None = None,
+) -> tuple[dict[str, str], dict[str, float]]:
+    """Each advisor reviews the synthesized plan and returns feedback.
+
+    Returns (advisor_reviews, timing). Each review is either "PROCEED"
+    or a list of prioritised recommendations.
+    """
+    skills = discover_advisor_skills(skills_dir)
+    if not skills:
+        raise RuntimeError("No advisor skills found. Check the skills/ directory.")
+
+    plan_summary = _format_plan_for_review(plan_data)
+    total = len(skills)
+
+    async def _review_one(skill: AdvisorSkill) -> tuple[str, str]:
+        prompt = _plan_review_prompt(skill, plan_summary)
+        temp = _advisor_temperature(
+            skill.temperature_rank, total, temperature_spread,
+        )
+        seed = _advisor_seed(skill.seed_offset, plan_id)
+        response = await llm.complete(prompt, temperature=temp, seed=seed)
+        return skill.display_name, response
+
+    t0 = time.monotonic()
+    results = await asyncio.gather(*[_review_one(s) for s in skills])
+    duration = time.monotonic() - t0
+
+    advisor_reviews: dict[str, str] = dict(results)
+    timing = {"start": t0, "duration": round(duration, 3)}
+
+    return advisor_reviews, timing
+
+
+# ---------------------------------------------------------------------------
+# Decision gate: Business + Architect decide on recommendations
+# ---------------------------------------------------------------------------
+
+
+def _decision_gate_prompt(
+    plan_data: dict[str, Any],
+    advisor_reviews: dict[str, str],
+) -> str:
+    """Build the prompt for the Business+Architect decision gate."""
+    skill_text = discover_decision_gate_skill()
+    plan_summary = _format_plan_for_review(plan_data)
+
+    reviews_section = "\n\n".join(
+        f"**{name}:**\n{text}"
+        for name, text in advisor_reviews.items()
+    )
+
+    parts = []
+    if skill_text:
+        parts.append(f"{skill_text}\n\n---\n")
+
+    parts.append(
+        "## Plan Under Review\n\n"
+        f"{plan_summary}\n\n---\n\n"
+        "## Advisor Reviews\n\n"
+        f"{reviews_section}\n\n---\n\n"
+        "Make your decision. Return valid JSON only. No commentary "
+        "outside the JSON block."
+    )
+    return "\n".join(parts)
+
+
+async def decide_changes(
+    plan_data: dict[str, Any],
+    advisor_reviews: dict[str, str],
+    llm: LLMClient,
+) -> dict[str, Any]:
+    """Business+Architect decision gate on advisor recommendations.
+
+    Returns a decision dict with verdict, rationale, and per-recommendation
+    decisions (ACCEPT/DEFER/DROP).
+    """
+    import json as _json
+
+    prompt = _decision_gate_prompt(plan_data, advisor_reviews)
+    raw_response = await llm.complete(prompt, temperature=0.7)
+
+    # Extract JSON from response
+    json_text = raw_response.strip()
+    if "```json" in json_text:
+        start = json_text.index("```json") + 7
+        end = json_text.index("```", start)
+        json_text = json_text[start:end].strip()
+    elif "```" in json_text:
+        start = json_text.index("```") + 3
+        end = json_text.index("```", start)
+        json_text = json_text[start:end].strip()
+
+    try:
+        decision = _json.loads(json_text)
+    except _json.JSONDecodeError:
+        # Retry once
+        repair_prompt = (
+            "The previous response was not valid JSON. "
+            "Fix it and return ONLY the corrected JSON:\n\n"
+            f"{raw_response}"
+        )
+        raw_response = await llm.complete(repair_prompt)
+        json_text = raw_response.strip()
+        if "```json" in json_text:
+            start = json_text.index("```json") + 7
+            end = json_text.index("```", start)
+            json_text = json_text[start:end].strip()
+        elif "```" in json_text:
+            start = json_text.index("```") + 3
+            end = json_text.index("```", start)
+            json_text = json_text[start:end].strip()
+        decision = _json.loads(json_text)
+
+    return decision
