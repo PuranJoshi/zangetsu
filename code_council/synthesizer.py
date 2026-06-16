@@ -396,9 +396,7 @@ async def synthesize_plan(
     as *conflict_analysis*.  If omitted, the synthesizer falls back to
     single-pass mode (backward-compatible).
     """
-    prompt = _synthesizer_prompt(
-        change_description, advisor_responses, context, conflict_analysis
-    )
+    prompt = _synthesizer_prompt(change_description, advisor_responses, context, conflict_analysis)
     raw_response = await llm.complete(prompt)
     json_text = _extract_json(raw_response)
 

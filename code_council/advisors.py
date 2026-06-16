@@ -290,10 +290,7 @@ def discover_analysis_skill(
             continue
 
         frontmatter, body = _parse_frontmatter(text)
-        if (
-            frontmatter.get("type") == "synthesizer_analysis"
-            and frontmatter.get("enabled", True)
-        ):
+        if frontmatter.get("type") == "synthesizer_analysis" and frontmatter.get("enabled", True):
             return body
 
     logger.warning("No synthesizer_analysis skill found in %s", skills_dir)
@@ -376,10 +373,7 @@ def _format_context(ctx: ProjectContext) -> str:
 
     if ctx.code_comments:
         parts.append("\n### Implementation Notes & Design Comments")
-        parts.append(
-            "Key comments, docstrings, and design rationale "
-            "extracted from the codebase:"
-        )
+        parts.append("Key comments, docstrings, and design rationale extracted from the codebase:")
         for path, comments in ctx.code_comments.items():
             if comments:
                 parts.append(f"\n**{path}:**")

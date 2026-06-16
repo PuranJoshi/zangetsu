@@ -99,9 +99,7 @@ async def test_analyze_conflicts_returns_markdown(fake_llm, fake_context) -> Non
 
 
 @pytest.mark.asyncio
-async def test_analyze_conflicts_prompt_contains_advisor_names(
-    fake_llm, fake_context
-) -> None:
+async def test_analyze_conflicts_prompt_contains_advisor_names(fake_llm, fake_context) -> None:
     """The analysis prompt should include all advisor names."""
     await analyze_conflicts(
         change_description="Add a feature",
@@ -116,9 +114,7 @@ async def test_analyze_conflicts_prompt_contains_advisor_names(
 
 
 @pytest.mark.asyncio
-async def test_two_pass_synthesis_makes_two_llm_calls(
-    fake_llm, fake_context
-) -> None:
+async def test_two_pass_synthesis_makes_two_llm_calls(fake_llm, fake_context) -> None:
     """Full two-pass flow should make exactly 2 LLM calls."""
     initial_count = fake_llm.call_count
 
@@ -141,9 +137,7 @@ async def test_two_pass_synthesis_makes_two_llm_calls(
 
 
 @pytest.mark.asyncio
-async def test_synthesis_prompt_contains_conflict_analysis(
-    fake_llm, fake_context
-) -> None:
+async def test_synthesis_prompt_contains_conflict_analysis(fake_llm, fake_context) -> None:
     """When conflict_analysis is provided, it should appear in the synthesis prompt."""
     analysis = await analyze_conflicts(
         change_description="Add a feature",
@@ -166,9 +160,7 @@ async def test_synthesis_prompt_contains_conflict_analysis(
 
 
 @pytest.mark.asyncio
-async def test_synthesize_without_analysis_still_works(
-    fake_llm, fake_context
-) -> None:
+async def test_synthesize_without_analysis_still_works(fake_llm, fake_context) -> None:
     """Backward compatibility: synthesize_plan without conflict_analysis."""
     plan = await synthesize_plan(
         change_description="Add a feature",

@@ -735,11 +735,7 @@ def generate_context_prompt(
                     )
 
         if parts:
-            req_section = (
-                "\n## Framed Requirement\n\n"
-                + "\n".join(parts)
-                + "\n"
-            )
+            req_section = "\n## Framed Requirement\n\n" + "\n".join(parts) + "\n"
 
     # -- Assemble the full prompt ----------------------------------------------
     prompt = f"""\
