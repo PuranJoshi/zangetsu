@@ -309,14 +309,10 @@ Environment variables are loaded at module import time so they are available
 when `Settings()` is constructed. Factory function `get_settings()` creates
 fresh instances for test isolation. Includes `plan_path` and `transcript_path`
 properties for deriving storage directories from string settings.
-`get_skill_model(skill_name)` looks up per-skill model overrides from
-`CODE_COUNCIL_MODEL_<SKILL_NAME>` environment variables -- works for all
-pipeline skills (advisors, framer, synthesizer, decision gate, humanizer).
 
-### `llm.py` (~300 lines)
+### `llm.py` (286 lines)
 LLM client wrapper using the OpenAI Python SDK pointed at any OpenAI-compatible endpoint.
-- `LLMClient` Protocol for structural typing (includes optional `model` parameter
-  for per-call model routing)
+- `LLMClient` Protocol for structural typing
 - `OpenAICompatibleLLM` implementation with retry (exponential backoff, max 3 retries)
   and `asyncio.wait_for()` timeout
 - Per-call model override: all methods accept an optional `model` parameter. If
@@ -588,8 +584,7 @@ error_message: str
 |---|---|---|---|
 | `LLM_API_KEY` | Yes | `""` | API key for the LLM endpoint |
 | `LLM_BASE_URL` | Yes | `""` | Base URL of OpenAI-compatible API |
-| `CODE_COUNCIL_MODEL` | No | `REPLACE_ME_WITH_YOUR_MODEL` | Default model identifier |
-| `CODE_COUNCIL_MODEL_<SKILL>` | No | -- | Per-skill model override (see `env.example` for all skill names) |
+| `CODE_COUNCIL_MODEL` | No | `REPLACE_ME_WITH_YOUR_MODEL` | Model identifier |
 | `CODE_COUNCIL_AGENT_TIMEOUT_SECONDS` | No | `120` | Per-LLM-call timeout (seconds) |
 | `CODE_COUNCIL_ADVISOR_TEMPERATURE_SPREAD` | No | `0.4` | Temperature range across advisors |
 | `CODE_COUNCIL_MAX_NEGOTIATION_ROUNDS` | No | `3` | Max negotiation rounds |

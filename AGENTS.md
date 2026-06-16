@@ -136,11 +136,7 @@ Or set environment variables directly:
 ```
 LLM_API_KEY=your-api-key
 LLM_BASE_URL=https://api.openai.com/v1
-CODE_COUNCIL_MODEL=gpt-4o-mini
-
-# Optional: per-skill overrides (only when you need a different model)
-CODE_COUNCIL_MODEL_ARCHITECT=gpt-4o
-CODE_COUNCIL_MODEL_SYNTHESIZER=gpt-4o
+CODE_COUNCIL_MODEL=your-default-model
 ```
 
 ## Storage

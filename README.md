@@ -155,8 +155,7 @@ A ready-to-copy version of this is available in `env.example`.
 |---|---|---|---|
 | `LLM_API_KEY` | Yes | -- | API key for the LLM endpoint |
 | `LLM_BASE_URL` | Yes | -- | Base URL of the OpenAI-compatible API |
-| `CODE_COUNCIL_MODEL` | No | `REPLACE_ME_WITH_YOUR_MODEL` | Default model identifier |
-| `CODE_COUNCIL_MODEL_<SKILL>` | No | -- | Per-skill model override (see `env.example`) |
+| `CODE_COUNCIL_MODEL` | No | `REPLACE_ME_WITH_YOUR_MODEL` | Model identifier |
 | `CODE_COUNCIL_AGENT_TIMEOUT_SECONDS` | No | `120` | Per-call timeout |
 | `CODE_COUNCIL_ADVISOR_TEMPERATURE_SPREAD` | No | `0.4` | Temperature range |
 | `CODE_COUNCIL_MAX_NEGOTIATION_ROUNDS` | No | `3` | Max negotiation rounds |
