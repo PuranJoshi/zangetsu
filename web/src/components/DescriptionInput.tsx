@@ -249,7 +249,7 @@ export function DescriptionInput({ onSubmit, onLoadTranscript }: Props) {
                        ${hasTranscripts ? "py-8" : "py-12"}`}>
         <div className="text-center">
           <h1 className="text-3xl font-semibold text-text-primary mb-2">
-            Code Council
+            Zangetsu: AI Planning Council
           </h1>
           <p className="text-text-secondary text-sm">
             Describe the feature or change you want to plan
