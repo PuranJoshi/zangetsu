@@ -12,18 +12,31 @@ import type {
   TokenUsageState,
 } from "../types"
 
+/**
+ * Convert frontend TokenUsageState to the backend dict format
+ * expected by TokenTracker.from_dict().
+ */
+function tokenUsageStateToDict(state: TokenUsageState): Record<string, unknown> {
+  const stages: Record<string, TokenUsageData> = {}
+  for (const s of state.stages) {
+    stages[s.stage] = s.usage
+  }
+  return { stages, total: state.total }
+}
+
 export interface UseCouncilFeedbackResult {
   state: CouncilFeedbackState
   isRunning: boolean
   isApplying: boolean
-  requestFeedback: (planId: string, plan: ChangePlan) => Promise<void>
+  requestFeedback: (planId: string, plan: ChangePlan, priorTokenUsage?: TokenUsageState | null) => Promise<void>
   applyChanges: (
     planId: string,
     changeDescription: string,
     framedRequirement: FramedRequirement,
     acceptedChanges: string[],
     projectContext?: ProjectContext | null,
-    basePlanId?: string | null
+    basePlanId?: string | null,
+    priorTokenUsage?: TokenUsageState | null
   ) => Promise<ChangePlan | null>
   reset: () => void
 }
@@ -45,7 +58,7 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
   const abortRef = useRef<AbortController | null>(null)
 
   const requestFeedback = useCallback(
-    async (planId: string, plan: ChangePlan) => {
+    async (planId: string, plan: ChangePlan, priorTokenUsage?: TokenUsageState | null) => {
       if (abortRef.current) {
         abortRef.current.abort()
       }
@@ -63,12 +76,15 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
       })
 
       try {
+        const priorDict = priorTokenUsage ? tokenUsageStateToDict(priorTokenUsage) : null
+
         const response = await fetch("/api/council/feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             plan_id: planId,
             plan_data: plan,
+            prior_token_usage: priorDict,
           }),
           signal: controller.signal,
         })
@@ -218,7 +234,8 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
       framedRequirement: FramedRequirement,
       acceptedChanges: string[],
       projectContext?: ProjectContext | null,
-      basePlanId?: string | null
+      basePlanId?: string | null,
+      priorTokenUsage?: TokenUsageState | null
     ): Promise<ChangePlan | null> => {
       if (abortRef.current) {
         abortRef.current.abort()
@@ -229,8 +246,12 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
 
       setIsApplying(true)
       let resultPlan: ChangePlan | null = null
+      let newPlanId: string | null = null
+      let newBasePlanId: string | null = null
 
       try {
+        const priorDict = priorTokenUsage ? tokenUsageStateToDict(priorTokenUsage) : null
+
         const response = await fetch("/api/council/feedback/apply", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -241,6 +262,7 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
             accepted_changes: acceptedChanges,
             project_context: projectContext ?? null,
             base_plan_id: basePlanId ?? null,
+            prior_token_usage: priorDict,
           }),
           signal: controller.signal,
         })
@@ -275,6 +297,11 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
                 status: string
                 data?: Record<string, unknown>
               }
+              // Capture new plan_id from session/started (server generates it)
+              if (event.stage === "session" && event.status === "started") {
+                if (event.data?.plan_id) newPlanId = event.data.plan_id as string
+                if (event.data?.base_plan_id) newBasePlanId = event.data.base_plan_id as string
+              }
               // Capture the new plan from synthesis/completed
               if (
                 event.stage === "synthesis" &&
@@ -282,6 +309,11 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
                 event.data?.plan
               ) {
                 resultPlan = event.data.plan as ChangePlan
+              }
+              // Capture final plan_id from session/completed
+              if (event.stage === "session" && event.status === "completed") {
+                if (event.data?.plan_id) newPlanId = event.data.plan_id as string
+                if (event.data?.base_plan_id) newBasePlanId = event.data.base_plan_id as string
               }
               if (event.stage === "session" && event.status === "error") {
                 throw new Error(
@@ -312,6 +344,13 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
       } finally {
         setIsApplying(false)
         abortRef.current = null
+      }
+
+      // Stamp the server-generated plan_id and base_plan_id onto the
+      // result so the caller can update session state correctly.
+      if (resultPlan) {
+        if (newPlanId) resultPlan.plan_id = newPlanId
+        if (newBasePlanId) resultPlan.base_plan_id = newBasePlanId
       }
 
       return resultPlan

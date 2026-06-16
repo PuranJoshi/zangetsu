@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react"
 import type { FramedRequirement, ProjectContext, ChangePlan, TokenUsageState, StageTokenUsage } from "./types"
+import { tokenUsageDictToState } from "./types"
 import { useFramer } from "./hooks/useFramer"
 import { useCouncilStream } from "./hooks/useCouncilStream"
 import { useCouncilFeedback } from "./hooks/useCouncilFeedback"
@@ -53,6 +54,12 @@ export default function App() {
   // Track whether the user has an active session (not idle input)
   const hasActiveSession = phase !== "input"
 
+  // Preserved cumulative token usage that survives hook resets (e.g.,
+  // when councilFeedback.reset() or council.loadFromPlan() clears state).
+  // Updated on every mergedTokenUsage change; read when starting new
+  // pipeline stages so the backend can seed its TokenTracker.
+  const [cumulativeTokens, setCumulativeTokens] = useState<TokenUsageState | null>(null)
+
   // Hooks
   const framer = useFramer()
   const council = useCouncilStream()
@@ -62,42 +69,76 @@ export default function App() {
   // -------------------------------------------------------------------------
   // Merged token usage: framing + council pipeline + council feedback
   // -------------------------------------------------------------------------
+  //
+  // Each backend pipeline (council stream, council review, council feedback,
+  // council feedback/apply) is seeded with prior cumulative usage, so its
+  // token_usage events already include ALL prior stages.  The most recent
+  // active source is therefore the authoritative cumulative view.
+  //
+  // We merge by stage name with later sources overriding earlier ones.
+  // This avoids double-counting when multiple sources report the same stage.
+  // -------------------------------------------------------------------------
   const mergedTokenUsage = useMemo((): TokenUsageState | null => {
-    const stages: StageTokenUsage[] = []
-    const zero = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
-    const total = { ...zero }
+    const stageMap = new Map<string, StageTokenUsage>()
 
-    // Framing tokens (from WebSocket framer)
+    // Layer 1: framing tokens (from WebSocket framer -- standalone source)
     if (framer.tokenUsage && framer.tokenUsage.total_tokens > 0) {
-      stages.push({ stage: "framing", usage: framer.tokenUsage })
-      total.prompt_tokens += framer.tokenUsage.prompt_tokens
-      total.completion_tokens += framer.tokenUsage.completion_tokens
-      total.total_tokens += framer.tokenUsage.total_tokens
+      stageMap.set("framing", { stage: "framing", usage: framer.tokenUsage })
     }
 
-    // Council pipeline tokens (advisors, analysis, synthesis)
+    // Layer 2: council pipeline tokens (advisors, analysis, synthesis).
+    // These are cumulative and include framing if seeded with prior usage,
+    // so they override the framing entry above with a potentially larger value.
     if (council.session.tokenUsage) {
       for (const s of council.session.tokenUsage.stages) {
-        stages.push(s)
-        total.prompt_tokens += s.usage.prompt_tokens
-        total.completion_tokens += s.usage.completion_tokens
-        total.total_tokens += s.usage.total_tokens
+        stageMap.set(s.stage, s)
       }
     }
 
-    // Council feedback tokens (review, decision_gate)
+    // Layer 3: council feedback tokens (review, decision_gate, plus all
+    // prior stages since the backend is seeded cumulatively).
+    // This is the latest source and overrides everything before it.
     if (councilFeedback.state.tokenUsage) {
       for (const s of councilFeedback.state.tokenUsage.stages) {
-        stages.push(s)
-        total.prompt_tokens += s.usage.prompt_tokens
-        total.completion_tokens += s.usage.completion_tokens
-        total.total_tokens += s.usage.total_tokens
+        stageMap.set(s.stage, s)
       }
     }
 
-    if (stages.length === 0) return null
+    if (stageMap.size === 0) return null
+
+    const stages = Array.from(stageMap.values())
+
+    // Use the total from the most recent source that has one, since the
+    // backend computes cumulative totals.  Fall back to summing stages.
+    const latestTotal =
+      councilFeedback.state.tokenUsage?.total ??
+      council.session.tokenUsage?.total ??
+      null
+
+    const total = latestTotal ?? stages.reduce(
+      (acc, s) => ({
+        prompt_tokens: acc.prompt_tokens + s.usage.prompt_tokens,
+        completion_tokens: acc.completion_tokens + s.usage.completion_tokens,
+        total_tokens: acc.total_tokens + s.usage.total_tokens,
+      }),
+      { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    )
+
     return { stages, total }
   }, [framer.tokenUsage, council.session.tokenUsage, councilFeedback.state.tokenUsage])
+
+  // Keep cumulative state in sync with the latest merged value.
+  // When hooks reset (e.g., councilFeedback.reset()), merged may temporarily
+  // drop stages.  The cumulative state preserves the last-known-good value.
+  useEffect(() => {
+    if (mergedTokenUsage) {
+      setCumulativeTokens(mergedTokenUsage)
+    }
+  }, [mergedTokenUsage])
+
+  // For display: prefer the live merged value, fall back to the preserved
+  // cumulative snapshot so the sidebar doesn't flash empty between resets.
+  const displayTokenUsage = mergedTokenUsage ?? cumulativeTokens
 
   // Guard against duplicate phase transitions during a single render
   const phaseRef = useRef(phase)
@@ -254,9 +295,9 @@ export default function App() {
       }
 
       setPhase("advising")
-      council.startCouncil(usePlanId, rawDescription, framedRequirement, ctx, basePlanId)
+      council.startCouncil(usePlanId, rawDescription, framedRequirement, ctx, basePlanId, cumulativeTokens)
     },
-    [framedRequirement, rawDescription, council, planId, basePlanId]
+    [framedRequirement, rawDescription, council, planId, basePlanId, cumulativeTokens]
   )
 
   const handleScanSkip = useCallback(() => {
@@ -420,8 +461,8 @@ export default function App() {
 
   const handleCouncilReview = useCallback(() => {
     if (!council.session.plan || !planId) return
-    councilFeedback.requestFeedback(planId, council.session.plan)
-  }, [council.session.plan, planId, councilFeedback])
+    councilFeedback.requestFeedback(planId, council.session.plan, cumulativeTokens)
+  }, [council.session.plan, planId, councilFeedback, cumulativeTokens])
 
   const handleApplyCouncilChanges = useCallback(
     async (acceptedChanges: string[]) => {
@@ -433,15 +474,23 @@ export default function App() {
         acceptedChanges,
         projectContext,
         basePlanId,
+        cumulativeTokens,
       )
       if (newPlan) {
+        // The server generated a new plan_id for the revised plan.
+        // Update session state so re-advise and sidebar link correctly.
+        if (newPlan.plan_id) {
+          setPlanId(newPlan.plan_id)
+          setBasePlanId(newPlan.base_plan_id || newPlan.plan_id)
+        }
+
         // Replace the current plan with the council-reviewed one
         council.loadFromPlan(newPlan)
         councilFeedback.reset()
         setSidebarRefreshKey((k) => k + 1)
       }
     },
-    [planId, rawDescription, framedRequirement, projectContext, basePlanId, councilFeedback, council]
+    [planId, rawDescription, framedRequirement, projectContext, basePlanId, councilFeedback, council, cumulativeTokens]
   )
 
   const handleDismissCouncilReview = useCallback(() => {
@@ -462,6 +511,7 @@ export default function App() {
     setReviewVersion(1)
     setIsReframing(false)
     setReAdviseError(null)
+    setCumulativeTokens(null)
     council.reset()
     councilFeedback.reset()
     scanner.reset()
@@ -473,7 +523,7 @@ export default function App() {
   // ---------------------------------------------------------------------------
 
   const handleLoadPlan = useCallback(
-    (plan: ChangePlan, description: string, framedReq?: FramedRequirement) => {
+    (plan: ChangePlan, description: string, framedReq?: FramedRequirement, savedTokenUsage?: TokenUsageState | null) => {
       // Hydrate session state from a saved plan
       setRawDescription(description || plan.change_description)
       setPlanId(plan.plan_id)
@@ -485,8 +535,14 @@ export default function App() {
         setFramedRequirement(framedReq)
       }
 
+      // Restore token usage from the saved plan so the sidebar shows
+      // how many tokens were used when this plan was originally created.
+      if (savedTokenUsage) {
+        setCumulativeTokens(savedTokenUsage)
+      }
+
       // If the plan has advisor responses, show the completed plan
-      council.loadFromPlan(plan)
+      council.loadFromPlan(plan, savedTokenUsage)
       setPhase("done")
       route.navigate("/")
     },
@@ -522,7 +578,8 @@ export default function App() {
         }
 
         const framedReq = data.framed_requirement as FramedRequirement | undefined
-        handleLoadPlan(planData, data.change_description || "", framedReq)
+        const savedTokenUsage = tokenUsageDictToState(data.token_usage)
+        handleLoadPlan(planData, data.change_description || "", framedReq, savedTokenUsage)
       } catch (err) {
         console.error("Failed to load plan from sidebar:", err)
       }
@@ -624,7 +681,7 @@ export default function App() {
             onSelectPlan={handleSidebarSelectPlan}
             refreshKey={sidebarRefreshKey}
           />
-          <TokenUsageSidebar tokenUsage={mergedTokenUsage} />
+          <TokenUsageSidebar tokenUsage={displayTokenUsage} />
         </div>
 
         {/* Main content area */}

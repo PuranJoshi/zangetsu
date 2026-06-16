@@ -4,7 +4,7 @@ A CLI tool that plans code changes through multi-advisor deliberation --
 before any code is written.
 
 Describe a feature in plain English. Code Council frames it as structured
-requirements, runs 6 independent technical advisors in parallel, and
+requirements, runs 7 independent technical advisors in parallel, and
 synthesizes a single actionable implementation plan you can hand to your
 AI coding agent.
 
@@ -77,13 +77,14 @@ bankai show <plan-id>
    AI-generated context JSON (the tool generates a tailored prompt you give to
    your AI coding tool), or skip for greenfield projects.
 
-3. **Advising** -- 6 advisors analyze the requirements in parallel:
+3. **Advising** -- 7 advisors analyze the requirements in parallel:
    - **Executor** -- how to build it, step by step, acceptance criteria in integration tests, test pyramid, coverage
    - **Security** -- vulnerabilities, auth, data exposure
    - **Quality** -- self-documenting code, tests as living documentation, testability
    - **Business** -- value, scope, tough questions
    - **Architect** -- structure, patterns, coupling
    - **Risk** -- what could break, rollback, blast radius
+   - **Fraud** -- loophole detection, abuse vectors, fraud probability rating, merchant fraud, insider risk, detection/recovery gaps
 
 4. **Synthesizing** -- A synthesizer merges all advisor outputs into a single
    plan with implementation steps, affected files, acceptance criteria, risk
@@ -122,6 +123,7 @@ Model resolution order (highest priority first):
 | `CODE_COUNCIL_MODEL_BUSINESS` | Business advisor | 1 |
 | `CODE_COUNCIL_MODEL_ARCHITECT` | Architect advisor | 1 |
 | `CODE_COUNCIL_MODEL_RISK` | Risk advisor | 1 |
+| `CODE_COUNCIL_MODEL_FRAUD` | Fraud advisor | 1 |
 | `CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS` | Conflict analysis (Pass 1) | 1 |
 | `CODE_COUNCIL_MODEL_SYNTHESIZER` | Plan synthesis (Pass 2) | 1 |
 | `CODE_COUNCIL_MODEL_DECISION_GATE` | Council review decision gate | 1 |
@@ -141,6 +143,7 @@ CODE_COUNCIL_MODEL_QUALITY=gpt-4o-mini
 CODE_COUNCIL_MODEL_BUSINESS=gpt-4o-mini
 CODE_COUNCIL_MODEL_ARCHITECT=gpt-4o-mini
 CODE_COUNCIL_MODEL_RISK=gpt-4o-mini
+CODE_COUNCIL_MODEL_FRAUD=gpt-4o-mini
 CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS=gpt-4o-mini
 CODE_COUNCIL_MODEL_SYNTHESIZER=gpt-4o-mini
 CODE_COUNCIL_MODEL_DECISION_GATE=gpt-4o-mini

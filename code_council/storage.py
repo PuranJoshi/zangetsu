@@ -82,12 +82,11 @@ def save_plan(
     ts = datetime.now(timezone.utc).isoformat()
     stem = plan_filename_stem(plan_id, change_description)
 
-    # Council-reviewed plans are saved as a separate file so the
-    # original plan is preserved for comparison.
-    if state_data.get("status") == "council_reviewed":
-        filename = f"plan-{stem}-revised.json"
-    else:
-        filename = f"plan-{stem}.json"
+    # Council-reviewed plans now get their own plan_id (generated in
+    # daemon.py) so they are saved as a separate file naturally via
+    # the unique hex prefix.  The original plan is preserved because
+    # it has a different plan_id and file.
+    filename = f"plan-{stem}.json"
 
     path = plan_dir / filename
 
@@ -133,20 +132,14 @@ def save_council_review(
 
     plan_dir = settings.plan_path
 
-    # Find the original plan file (not the -revised variant).
-    # Council review results belong on the original plan that was reviewed.
+    # Find the plan file by ID.
     path: Path | None = None
     exact = plan_dir / f"plan-{plan_id}.json"
     if exact.is_file():
         path = exact
     else:
         matches = list(plan_dir.glob(f"plan-{plan_id}-*.json"))
-        # Prefer non-revised files
-        non_revised = [m for m in matches if not m.stem.endswith("-revised")]
-        if non_revised:
-            non_revised.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            path = non_revised[0]
-        elif matches:
+        if matches:
             matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
             path = matches[0]
 

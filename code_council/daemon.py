@@ -41,6 +41,7 @@ class CouncilStreamRequest(BaseModel):
     framed_requirement: dict[str, Any]
     project_context: dict[str, Any] | None = None
     base_plan_id: str | None = None  # original plan being re-advised
+    prior_token_usage: dict[str, Any] | None = None  # cumulative tokens from earlier stages
 
 
 class ScanTreeRequest(BaseModel):
@@ -101,6 +102,7 @@ class ReviewActionRequest(BaseModel):
     feedback: str = ""  # required when action is "re-advise"
     advisor_responses: dict[str, str] | None = None  # current advisor responses
     base_plan_id: str | None = None  # original plan being re-advised
+    prior_token_usage: dict[str, Any] | None = None  # cumulative tokens from earlier stages
 
 
 class CouncilFeedbackRequest(BaseModel):
@@ -109,6 +111,7 @@ class CouncilFeedbackRequest(BaseModel):
 
     plan_id: str
     plan_data: dict[str, Any]
+    prior_token_usage: dict[str, Any] | None = None  # cumulative tokens from earlier stages
 
 
 class CouncilApplyRequest(BaseModel):
@@ -124,6 +127,7 @@ class CouncilApplyRequest(BaseModel):
     project_context: dict[str, Any] | None = None
     accepted_changes: list[str]  # list of recommendation text strings to apply
     base_plan_id: str | None = None
+    prior_token_usage: dict[str, Any] | None = None  # cumulative tokens from earlier stages
 
 
 # ---------------------------------------------------------------------------
@@ -344,6 +348,25 @@ async def ws_framer(ws: WebSocket) -> None:
         except Exception as exc:
             logger.warning("Failed to save user message: %s", exc)
 
+    # Helper: persist token usage to transcript
+    def _save_framing_tokens():
+        if not plan_id:
+            return
+        try:
+            from code_council.transcript import update_token_usage
+
+            usage_dict = _framing_usage.to_dict()
+            update_token_usage(
+                plan_id=plan_id,
+                token_usage={
+                    "stages": {"framing": usage_dict},
+                    "total": usage_dict,
+                },
+                transcript_dir=settings.transcript_path,
+            )
+        except Exception as exc:
+            logger.warning("Failed to save framing token usage: %s", exc)
+
     # Helper: persist the framed requirement text to transcript
     def _save_framed(framed_req: dict):
         if not plan_id:
@@ -437,6 +460,7 @@ async def ws_framer(ws: WebSocket) -> None:
             chat_result = await llm.chat_with_usage(messages, model=framer_model)
             raw = chat_result.text
             _framing_usage += chat_result.usage
+            _save_framing_tokens()
             messages.append({"role": "assistant", "content": raw})
 
             parsed = _parse_framer_json(raw)
@@ -526,6 +550,7 @@ async def ws_framer(ws: WebSocket) -> None:
                     # Force-frame with what we have
                     result, force_usage = await _force_frame(llm, messages)
                     _framing_usage += TokenUsage(**force_usage)
+                    _save_framing_tokens()
                     if result and result.get("type") == "framed":
                         framed_req = result.get("framed_requirement", result)
                     elif result and "title" in result:
@@ -568,6 +593,7 @@ async def ws_framer(ws: WebSocket) -> None:
         # Max rounds reached -- force frame
         result, force_usage = await _force_frame(llm, messages)
         _framing_usage += TokenUsage(**force_usage)
+        _save_framing_tokens()
         if result:
             framed_req = result.get("framed_requirement", result)
         else:
@@ -647,7 +673,12 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
 
         plan_id = req.plan_id
         change_description = req.change_description
-        tracker = TokenTracker()
+
+        # Seed tracker with prior cumulative usage (e.g. framing tokens)
+        if req.prior_token_usage:
+            tracker = TokenTracker.from_dict(req.prior_token_usage)
+        else:
+            tracker = TokenTracker()
 
         # Reconstruct the framed requirement
         try:
@@ -664,6 +695,19 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
                 ctx = ProjectContext(project_path="(none)")
         else:
             ctx = ProjectContext(project_path="(none)")
+
+        # Helper: persist token usage to transcript
+        def _save_token_usage():
+            try:
+                from code_council.transcript import update_token_usage
+
+                update_token_usage(
+                    plan_id=plan_id,
+                    token_usage=tracker.to_dict(),
+                    transcript_dir=settings.transcript_path,
+                )
+            except Exception as exc:
+                logger.warning("Failed to save token usage to transcript: %s", exc)
 
         # Session started
         yield _sse_event("session", "started", {"plan_id": plan_id})
@@ -712,6 +756,7 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
                 "total": tracker.total.to_dict(),
             },
         )
+        _save_token_usage()
 
         # Analysis phase (Pass 1: conflict resolution)
         yield _sse_event("analysis", "started", {})
@@ -738,6 +783,7 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
                 "total": tracker.total.to_dict(),
             },
         )
+        _save_token_usage()
 
         # Synthesis phase (Pass 2: structured plan generation)
         yield _sse_event("synthesis", "started", {})
@@ -772,6 +818,7 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
                 "total": tracker.total.to_dict(),
             },
         )
+        _save_token_usage()
 
         # Save the plan
         try:
@@ -940,7 +987,12 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
 
         plan_id = req.plan_id
         change_description = req.change_description
-        tracker = TokenTracker()
+
+        # Seed tracker with prior cumulative usage
+        if req.prior_token_usage:
+            tracker = TokenTracker.from_dict(req.prior_token_usage)
+        else:
+            tracker = TokenTracker()
 
         if req.action == "approve":
             yield _sse_event("review", "approved", {"plan_id": plan_id})
@@ -980,6 +1032,19 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 ctx = ProjectContext(project_path="(none)")
         else:
             ctx = ProjectContext(project_path="(none)")
+
+        # Helper: persist token usage to transcript
+        def _save_token_usage():
+            try:
+                from code_council.transcript import update_token_usage
+
+                update_token_usage(
+                    plan_id=plan_id,
+                    token_usage=tracker.to_dict(),
+                    transcript_dir=settings.transcript_path,
+                )
+            except Exception as exc:
+                logger.warning("Failed to save token usage to transcript: %s", exc)
 
         yield _sse_event(
             "review",
@@ -1037,6 +1102,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 "total": tracker.total.to_dict(),
             },
         )
+        _save_token_usage()
 
         # Analysis phase (Pass 1: conflict resolution)
         yield _sse_event("analysis", "started", {})
@@ -1069,6 +1135,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 "total": tracker.total.to_dict(),
             },
         )
+        _save_token_usage()
 
         # Re-synthesize (Pass 2: structured plan generation)
         yield _sse_event("synthesis", "started", {})
@@ -1109,6 +1176,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 "total": tracker.total.to_dict(),
             },
         )
+        _save_token_usage()
 
         # Save updated plan
         try:
@@ -1189,7 +1257,12 @@ async def council_feedback(req: CouncilFeedbackRequest) -> StreamingResponse:
 
         plan_id = req.plan_id
         plan_data = req.plan_data
-        tracker = TokenTracker()
+
+        # Seed tracker with prior cumulative usage
+        if req.prior_token_usage:
+            tracker = TokenTracker.from_dict(req.prior_token_usage)
+        else:
+            tracker = TokenTracker()
 
         yield _sse_event("feedback", "started", {"plan_id": plan_id})
 
@@ -1321,10 +1394,21 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
         from code_council.framer import FramedRequirement
         from code_council.llm import TokenTracker
         from code_council.synthesizer import analyze_conflicts, synthesize_plan
+        from code_council.utils import generate_plan_id
 
-        plan_id = req.plan_id
+        # Generate a NEW plan_id for the council-revised plan so it gets
+        # its own file on disk.  The original plan_id becomes base_plan_id,
+        # creating a linked chain for version comparison.
+        original_plan_id = req.plan_id
+        plan_id = generate_plan_id(req.change_description)
+        base_plan_id = req.base_plan_id or original_plan_id
         change_description = req.change_description
-        tracker = TokenTracker()
+
+        # Seed tracker with prior cumulative usage (framing + council + feedback)
+        if req.prior_token_usage:
+            tracker = TokenTracker.from_dict(req.prior_token_usage)
+        else:
+            tracker = TokenTracker()
 
         # Parse framed requirement
         try:
@@ -1361,7 +1445,25 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
             feedback_lines.append(f"{i}. {change}")
         negotiation_feedback = "\n".join(feedback_lines)
 
-        yield _sse_event("session", "started", {"plan_id": plan_id})
+        # Helper: persist token usage to transcript (uses original plan_id
+        # since the transcript was created under that ID)
+        def _save_token_usage():
+            try:
+                from code_council.transcript import update_token_usage
+
+                update_token_usage(
+                    plan_id=original_plan_id,
+                    token_usage=tracker.to_dict(),
+                    transcript_dir=settings.transcript_path,
+                )
+            except Exception as exc:
+                logger.warning("Failed to save token usage to transcript: %s", exc)
+
+        yield _sse_event(
+            "session",
+            "started",
+            {"plan_id": plan_id, "base_plan_id": base_plan_id},
+        )
 
         # Discover advisor names
         skills = discover_advisor_skills()
@@ -1409,6 +1511,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 "total": tracker.total.to_dict(),
             },
         )
+        _save_token_usage()
 
         # Analysis phase (Pass 1: conflict resolution)
         yield _sse_event("analysis", "started", {})
@@ -1441,6 +1544,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 "total": tracker.total.to_dict(),
             },
         )
+        _save_token_usage()
 
         # Re-synthesize (Pass 2: structured plan generation)
         yield _sse_event("synthesis", "started", {})
@@ -1481,8 +1585,9 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 "total": tracker.total.to_dict(),
             },
         )
+        _save_token_usage()
 
-        # Save with council_reviewed status
+        # Save with council_reviewed status under the NEW plan_id
         try:
             from code_council.storage import save_plan
 
@@ -1494,7 +1599,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 advisor_responses=responses,
                 context_summary=ctx.summary or "",
                 framed_requirement=framed.model_dump(),
-                base_plan_id=req.base_plan_id,
+                base_plan_id=base_plan_id,
                 token_usage=tracker.to_dict(),
                 settings=settings,
             )
@@ -1507,6 +1612,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
             "completed",
             {
                 "plan_id": plan_id,
+                "base_plan_id": base_plan_id,
                 "duration": total_duration,
                 "token_usage": tracker.to_dict(),
             },
