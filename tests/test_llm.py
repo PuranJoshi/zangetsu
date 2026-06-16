@@ -1,6 +1,6 @@
 """Tests for LLM data structures and FakeLLM.
 
-We can't test LangdockLLM without real API credentials, but we CAN test:
+We can't test OpenAICompatibleLLM without real API credentials, but we CAN test:
 1. TokenUsage and LLMResult dataclasses behave correctly
 2. FakeLLM returns the right responses for different prompt types
 3. FakeLLM records call metadata properly

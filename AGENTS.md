@@ -125,8 +125,8 @@ model override. Adding a new advisor = dropping a new `.md` file.
 Set these environment variables (or put them in `~/.code-council/env`):
 
 ```
-LANGDOCK_API_KEY=your-api-key
-LANGDOCK_BASE_URL=https://your-langdock-url/v1
+LLM_API_KEY=your-api-key
+LLM_BASE_URL=https://api.openai.com/v1
 CODE_COUNCIL_MODEL=your-default-model
 ```
 

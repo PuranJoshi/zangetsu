@@ -41,7 +41,7 @@ from code_council.llm import LLMResult, TokenUsage
 class FakeLLM:
     """Deterministic LLM stub that returns canned responses.
 
-    Instead of calling the real Langdock API (which costs money and is
+    Instead of calling a real LLM API (which costs money and is
     non-deterministic), tests use this. It inspects the prompt to figure
     out what kind of response to return.
 

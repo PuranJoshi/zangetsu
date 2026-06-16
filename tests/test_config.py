@@ -3,7 +3,7 @@
 Python lesson: pydantic-settings
     BaseSettings is like Pydantic's BaseModel but it reads values from
     environment variables automatically. If you define a field called
-    `langdock_api_key`, it looks for the env var LANGDOCK_API_KEY.
+    `llm_api_key`, it looks for the env var LLM_API_KEY.
     This means no manual os.environ parsing -- just define the fields
     and Pydantic does the rest.
 
@@ -46,15 +46,15 @@ class TestDefaults:
 class TestEnvOverrides:
     """Env vars should override defaults."""
 
-    def test_langdock_credentials(self) -> None:
+    def test_llm_credentials(self) -> None:
         env = {
-            "LANGDOCK_API_KEY": "test-key",
-            "LANGDOCK_BASE_URL": "https://test.example.com/v1",
+            "LLM_API_KEY": "test-key",
+            "LLM_BASE_URL": "https://test.example.com/v1",
         }
         with mock.patch.dict(os.environ, env, clear=True):
             s = Settings()
-        assert s.langdock_api_key == "test-key"
-        assert s.langdock_base_url == "https://test.example.com/v1"
+        assert s.llm_api_key == "test-key"
+        assert s.llm_base_url == "https://test.example.com/v1"
 
     def test_model_override(self) -> None:
         with mock.patch.dict(os.environ, {"CODE_COUNCIL_MODEL": "gpt-5"}, clear=True):
@@ -67,23 +67,23 @@ class TestEnvOverrides:
         assert s.code_council_max_negotiation_rounds == 5
 
 
-class TestRequireLangdock:
-    """require_langdock() should raise when credentials are missing."""
+class TestRequireLLMCredentials:
+    """require_llm_credentials() should raise when credentials are missing."""
 
     def test_raises_when_missing(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True):
             s = Settings()
-        with pytest.raises(EnvironmentError, match="LANGDOCK_API_KEY"):
-            s.require_langdock()
+        with pytest.raises(EnvironmentError, match="LLM_API_KEY"):
+            s.require_llm_credentials()
 
     def test_passes_when_present(self) -> None:
         env = {
-            "LANGDOCK_API_KEY": "key",
-            "LANGDOCK_BASE_URL": "https://example.com",
+            "LLM_API_KEY": "key",
+            "LLM_BASE_URL": "https://example.com",
         }
         with mock.patch.dict(os.environ, env, clear=True):
             s = Settings()
-        s.require_langdock()  # should not raise
+        s.require_llm_credentials()  # should not raise
 
 
 class TestPlanPath:

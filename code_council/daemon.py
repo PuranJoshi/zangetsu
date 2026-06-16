@@ -291,7 +291,7 @@ async def ws_framer(ws: WebSocket) -> None:
         from code_council.llm import get_llm
 
         settings = get_settings()
-        settings.require_langdock()
+        settings.require_llm_credentials()
         llm = get_llm(settings)
     except Exception as exc:
         await ws.send_json({"type": "error", "message": str(exc)})
@@ -596,7 +596,7 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
         from code_council.llm import get_llm
 
         settings = get_settings()
-        settings.require_langdock()
+        settings.require_llm_credentials()
         llm = get_llm(settings)
     except Exception as exc:
         return JSONResponse(
@@ -864,7 +864,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
         from code_council.llm import get_llm
 
         settings = get_settings()
-        settings.require_langdock()
+        settings.require_llm_credentials()
         llm = get_llm(settings)
     except Exception as exc:
         return JSONResponse(
@@ -1080,7 +1080,7 @@ async def council_feedback(req: CouncilFeedbackRequest) -> StreamingResponse:
         from code_council.llm import get_llm
 
         settings = get_settings()
-        settings.require_langdock()
+        settings.require_llm_credentials()
         llm = get_llm(settings)
     except Exception as exc:
         return JSONResponse(
@@ -1197,7 +1197,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
         from code_council.llm import get_llm
 
         settings = get_settings()
-        settings.require_langdock()
+        settings.require_llm_credentials()
         llm = get_llm(settings)
     except Exception as exc:
         return JSONResponse(

@@ -6,7 +6,7 @@ Python lesson: pydantic-settings BaseSettings
     Unlike a regular Pydantic BaseModel, BaseSettings automatically reads
     values from environment variables. The mapping is:
         field name               -> ENV VAR
-        langdock_api_key         -> LANGDOCK_API_KEY
+        llm_api_key              -> LLM_API_KEY
         code_council_model       -> CODE_COUNCIL_MODEL
 
     Environment variables are UPPERCASE, field names are lowercase.
@@ -66,18 +66,18 @@ class Settings(BaseSettings):
 
     Usage:
         settings = get_settings()
-        settings.require_langdock()  # raises if credentials missing
+        settings.require_llm_credentials()  # raises if credentials missing
         print(settings.code_council_model)
     """
 
-    # -- Langdock / LLM --
-    langdock_api_key: str = Field(
+    # -- LLM provider --
+    llm_api_key: str = Field(
         default="",
-        description="API key for the Langdock-compatible endpoint.",
+        description="API key for the OpenAI-compatible LLM endpoint.",
     )
-    langdock_base_url: str = Field(
+    llm_base_url: str = Field(
         default="",
-        description="Base URL of the Langdock OpenAI-compatible API.",
+        description="Base URL of the OpenAI-compatible LLM API.",
     )
     code_council_model: str = Field(
         default="REPLACE_ME_WITH_YOUR_MODEL",
@@ -114,23 +114,23 @@ class Settings(BaseSettings):
     )
 
     # model_config tells pydantic-settings how to map env vars to fields.
-    # env_prefix="" means no prefix -- LANGDOCK_API_KEY maps directly.
-    # case_sensitive=False means LANGDOCK_API_KEY and langdock_api_key both work.
+    # env_prefix="" means no prefix -- LLM_API_KEY maps directly.
+    # case_sensitive=False means LLM_API_KEY and llm_api_key both work.
     model_config = {"env_prefix": "", "case_sensitive": False}
 
     # -- Helpers --
 
-    def require_langdock(self) -> None:
-        """Raise a clear error if Langdock credentials are missing.
+    def require_llm_credentials(self) -> None:
+        """Raise a clear error if LLM credentials are missing.
 
         Called before making LLM calls. Fails fast with a message
         telling the user exactly what to set and where.
         """
         missing: list[str] = []
-        if not self.langdock_api_key:
-            missing.append("LANGDOCK_API_KEY")
-        if not self.langdock_base_url:
-            missing.append("LANGDOCK_BASE_URL")
+        if not self.llm_api_key:
+            missing.append("LLM_API_KEY")
+        if not self.llm_base_url:
+            missing.append("LLM_BASE_URL")
         if missing:
             raise EnvironmentError(
                 f"Missing required environment variable(s): {', '.join(missing)}. "

@@ -313,7 +313,7 @@ async def _run_pipeline(
         resume_point = resolved["resume_point"]
         description = resolved["description"] or description
 
-        settings.require_langdock()
+        settings.require_llm_credentials()
         llm = get_llm(settings)
         # Reuse the original transcript/plan ID so corrections and
         # subsequent messages are appended to the *same* transcript file
@@ -391,7 +391,7 @@ async def _run_pipeline(
 
     else:
         # -- Normal flow: frame from scratch --------------------------------
-        settings.require_langdock()
+        settings.require_llm_credentials()
         llm = get_llm(settings)
         plan_id = _generate_plan_id(description)
         transcript_dir = settings.transcript_path
@@ -1416,7 +1416,7 @@ async def _export_plan_as_markdown(plan_id: str) -> None:
     # Step 2: Humanise the prose through the LLM
     settings = get_settings()
     try:
-        settings.require_langdock()
+        settings.require_llm_credentials()
         llm = get_llm(settings)
         typer.echo("Humanising prose...")
         markdown = await _humanise_markdown(raw_markdown, llm)
@@ -1424,7 +1424,7 @@ async def _export_plan_as_markdown(plan_id: str) -> None:
         # No LLM credentials -- skip humanisation, use raw markdown
         typer.echo(
             "  (Skipping humanisation -- no LLM credentials configured. "
-            "Set LANGDOCK_API_KEY and LANGDOCK_BASE_URL to enable.)"
+            "Set LLM_API_KEY and LLM_BASE_URL to enable.)"
         )
         markdown = raw_markdown
 

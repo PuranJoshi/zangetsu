@@ -41,7 +41,7 @@ zangetsu/
 │   ├── daemon.py                   # FastAPI server for web UI (WS framer with transcript persistence, SSE pipeline, REST)
 │   ├── utils.py                    # Shared utilities (generate_plan_id, slugify, plan_filename_stem)
 │   ├── config.py                   # Settings via pydantic-settings + env file loader
-│   ├── llm.py                      # Langdock/OpenAI LLM wrapper with retry logic
+│   ├── llm.py                      # OpenAI-compatible LLM wrapper with retry logic
 │   ├── context.py                  # Project filesystem scanner for advisor context
 │   ├── framer.py                   # Requirements framing (Phase 1 of pipeline)
 │   ├── advisors.py                 # Advisor skill registry + parallel execution engine
@@ -310,9 +310,9 @@ fresh instances for test isolation. Includes `plan_path` and `transcript_path`
 properties for deriving storage directories from string settings.
 
 ### `llm.py` (286 lines)
-LLM client wrapper using the OpenAI Python SDK pointed at a Langdock endpoint.
+LLM client wrapper using the OpenAI Python SDK pointed at any OpenAI-compatible endpoint.
 - `LLMClient` Protocol for structural typing
-- `LangdockLLM` implementation with retry (exponential backoff, max 3 retries)
+- `OpenAICompatibleLLM` implementation with retry (exponential backoff, max 3 retries)
   and `asyncio.wait_for()` timeout
 - Both basic API (`complete`/`chat`) and extended API (`complete_with_usage`/
   `chat_with_usage` returning `LLMResult` with token counts)
@@ -547,7 +547,7 @@ error_message: str
 ### Runtime
 | Package | Version | Purpose |
 |---|---|---|
-| `openai` | >= 1.30.0 | AsyncOpenAI client for Langdock endpoint |
+| `openai` | >= 1.30.0 | AsyncOpenAI client for OpenAI-compatible endpoints |
 | `typer` | >= 0.12.0 | CLI framework |
 | `pydantic` | >= 2.7.0 | Data models and validation |
 | `pydantic-settings` | >= 2.3.0 | Settings from environment variables |
@@ -568,8 +568,8 @@ error_message: str
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `LANGDOCK_API_KEY` | Yes | `""` | API key for Langdock endpoint |
-| `LANGDOCK_BASE_URL` | Yes | `""` | Base URL of OpenAI-compatible API |
+| `LLM_API_KEY` | Yes | `""` | API key for the LLM endpoint |
+| `LLM_BASE_URL` | Yes | `""` | Base URL of OpenAI-compatible API |
 | `CODE_COUNCIL_MODEL` | No | `REPLACE_ME_WITH_YOUR_MODEL` | Model identifier |
 | `CODE_COUNCIL_AGENT_TIMEOUT_SECONDS` | No | `120` | Per-LLM-call timeout (seconds) |
 | `CODE_COUNCIL_ADVISOR_TEMPERATURE_SPREAD` | No | `0.4` | Temperature range across advisors |
@@ -645,7 +645,7 @@ API calls, 231 tests total). Run with `pytest`.
 
 | Test File | Coverage |
 |---|---|
-| `test_config.py` | Settings defaults, env overrides, require_langdock, env file loading |
+| `test_config.py` | Settings defaults, env overrides, require_llm_credentials, env file loading |
 | `test_llm.py` | TokenUsage, LLMResult defaults, FakeLLM response routing |
 | `test_skill_registry.py` | Frontmatter parsing, skill discovery, temperature/seed math |
 | `test_skill_model_routing.py` | Per-skill model override field |
