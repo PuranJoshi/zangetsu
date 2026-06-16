@@ -30,6 +30,8 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
+from code_council.config import get_skill_model
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,6 +47,7 @@ class LLMClient(Protocol):
         *,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> str: ...
 
 
@@ -240,13 +243,15 @@ async def frame_request(
     The caller checks result.needs_clarification() to decide whether
     to pause and ask the user for answers, or proceed to advisors.
     """
+    framer_model = get_skill_model("framer") or None
+
     prompt = _framer_prompt(
         change_description,
         context_summary,
         clarification_answers,
     )
 
-    raw_response = await llm.complete(prompt)
+    raw_response = await llm.complete(prompt, model=framer_model)
 
     json_text = _extract_json(raw_response)
 
@@ -259,7 +264,7 @@ async def frame_request(
             "Please fix the JSON and return ONLY the corrected JSON block:\n\n"
             f"{raw_response}"
         )
-        raw_response = await llm.complete(repair_prompt)
+        raw_response = await llm.complete(repair_prompt, model=framer_model)
         json_text = _extract_json(raw_response)
         data = json.loads(json_text)
 

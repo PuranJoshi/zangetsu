@@ -44,6 +44,7 @@ from typing import Any, Protocol
 
 import yaml
 
+from code_council.config import get_skill_model
 from code_council.context import ProjectContext
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ class LLMClient(Protocol):
         *,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> str: ...
 
 
@@ -118,10 +120,12 @@ class AdvisorSkill:
     model: str = ""
     """Optional LLM model override. If set, this advisor uses a different
     model than the global default. For example:
-        architect.md -> model: claude-opus (strong at reasoning)
-        business.md  -> model: gpt-4o (good at product thinking)
+        architect.md -> model: gpt-4o
+        business.md  -> model: claude-sonnet
         executor.md  -> model: (empty, uses default)
     Empty string means "use the default model from config.py".
+    Only override when you have a specific reason -- avoid using
+    expensive reasoning models unless explicitly needed.
     """
 
     source_path: str = ""
@@ -221,6 +225,13 @@ def discover_advisor_skills(
             logger.warning("Skill file %s missing 'name' in frontmatter", path)
             continue
 
+        # Model resolution: env var > frontmatter > empty (global default).
+        # CODE_COUNCIL_MODEL_<SKILL_NAME> takes highest priority, then
+        # the model field in YAML frontmatter, then the global default.
+        env_model = get_skill_model(name)
+        frontmatter_model = frontmatter.get("model", "")
+        resolved_model = env_model or frontmatter_model
+
         skill = AdvisorSkill(
             name=name,
             display_name=frontmatter.get("display_name", name.title()),
@@ -229,7 +240,7 @@ def discover_advisor_skills(
             temperature_rank=int(frontmatter.get("temperature_rank", 0)),
             seed_offset=int(frontmatter.get("seed_offset", 0)),
             enabled=True,
-            model=frontmatter.get("model", ""),
+            model=resolved_model,
             source_path=str(path),
         )
         skills.append(skill)
@@ -477,6 +488,7 @@ async def run_advisors(
             prompt,
             temperature=params["temperature"],
             seed=params["seed"],
+            model=skill.model or None,
         )
         return skill.display_name, response
 
@@ -635,7 +647,12 @@ async def review_plan(
             temperature_spread,
         )
         seed = _advisor_seed(skill.seed_offset, plan_id)
-        response = await llm.complete(prompt, temperature=temp, seed=seed)
+        response = await llm.complete(
+            prompt,
+            temperature=temp,
+            seed=seed,
+            model=skill.model or None,
+        )
         return skill.display_name, response
 
     t0 = time.monotonic()
@@ -690,8 +707,10 @@ async def decide_changes(
     """
     import json as _json
 
+    gate_model = get_skill_model("decision_gate") or None
+
     prompt = _decision_gate_prompt(plan_data, advisor_reviews)
-    raw_response = await llm.complete(prompt, temperature=0.7)
+    raw_response = await llm.complete(prompt, temperature=0.7, model=gate_model)
 
     # Extract JSON from response
     json_text = raw_response.strip()
@@ -713,7 +732,7 @@ async def decide_changes(
             "Fix it and return ONLY the corrected JSON:\n\n"
             f"{raw_response}"
         )
-        raw_response = await llm.complete(repair_prompt)
+        raw_response = await llm.complete(repair_prompt, model=gate_model)
         json_text = raw_response.strip()
         if "```json" in json_text:
             start = json_text.index("```json") + 7

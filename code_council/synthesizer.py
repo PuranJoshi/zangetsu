@@ -22,6 +22,7 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from code_council.advisors import discover_analysis_skill, discover_synthesizer_skill
+from code_council.config import get_skill_model
 from code_council.context import ProjectContext
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class LLMClient(Protocol):
         *,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> str: ...
 
 
@@ -369,8 +371,9 @@ async def analyze_conflicts(
     ``synthesize_plan`` as the *conflict_analysis* parameter so the
     plan synthesizer can focus on structured output.
     """
+    analysis_model = get_skill_model("synthesizer_analysis") or None
     prompt = _analysis_prompt(change_description, advisor_responses, context)
-    return await llm.complete(prompt)
+    return await llm.complete(prompt, model=analysis_model)
 
 
 async def synthesize_plan(
@@ -396,8 +399,9 @@ async def synthesize_plan(
     as *conflict_analysis*.  If omitted, the synthesizer falls back to
     single-pass mode (backward-compatible).
     """
+    synth_model = get_skill_model("synthesizer") or None
     prompt = _synthesizer_prompt(change_description, advisor_responses, context, conflict_analysis)
-    raw_response = await llm.complete(prompt)
+    raw_response = await llm.complete(prompt, model=synth_model)
     json_text = _extract_json(raw_response)
 
     try:
@@ -408,7 +412,7 @@ async def synthesize_plan(
             "Fix it and return ONLY the corrected JSON:\n\n"
             f"{raw_response}"
         )
-        raw_response = await llm.complete(repair_prompt)
+        raw_response = await llm.complete(repair_prompt, model=synth_model)
         json_text = _extract_json(raw_response)
         data = json.loads(json_text)
 

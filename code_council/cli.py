@@ -1214,7 +1214,10 @@ async def _humanise_markdown(markdown: str, llm) -> str:
         f"{markdown}"
     )
 
-    return await llm.complete(prompt)
+    from code_council.config import get_skill_model
+
+    humanizer_model = get_skill_model("humanizer") or None
+    return await llm.complete(prompt, model=humanizer_model)
 
 
 def _plan_to_markdown(plan_data: dict) -> str:

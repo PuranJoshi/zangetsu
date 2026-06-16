@@ -245,6 +245,9 @@ def _parse_framer_json(raw: str) -> dict | None:
 
 async def _force_frame(llm, messages: list[dict[str, str]]) -> dict | None:
     """Force the LLM to produce a framed requirement."""
+    from code_council.config import get_skill_model
+
+    framer_model = get_skill_model("framer") or None
     messages.append(
         {
             "role": "user",
@@ -255,7 +258,7 @@ async def _force_frame(llm, messages: list[dict[str, str]]) -> dict | None:
             ),
         }
     )
-    raw = await llm.chat(messages)
+    raw = await llm.chat(messages, model=framer_model)
     return _parse_framer_json(raw)
 
 
@@ -287,7 +290,7 @@ async def ws_framer(ws: WebSocket) -> None:
     await ws.accept()
 
     try:
-        from code_council.config import get_settings
+        from code_council.config import get_settings, get_skill_model
         from code_council.llm import get_llm
 
         settings = get_settings()
@@ -410,8 +413,9 @@ async def ws_framer(ws: WebSocket) -> None:
         ]
 
         # Interview loop
+        framer_model = get_skill_model("framer") or None
         for round_num in range(_MAX_FRAMER_ROUNDS):
-            raw = await llm.chat(messages)
+            raw = await llm.chat(messages, model=framer_model)
             messages.append({"role": "assistant", "content": raw})
 
             parsed = _parse_framer_json(raw)

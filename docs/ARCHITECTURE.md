@@ -32,6 +32,7 @@ copied into an AI coding agent (OpenCode, Cursor, GitHub Copilot) for execution.
 zangetsu/
 ├── AGENTS.md                        # AI agent instructions (for OpenCode/Cursor/Copilot)
 ├── README.md                        # Project overview and setup instructions
+├── env.example                      # Example ~/.code-council/env with all model options
 ├── pyproject.toml                   # Build config, dependencies, CLI entry points
 ├── docs/
 │   └── ARCHITECTURE.md              # This file -- full project architecture
@@ -90,7 +91,7 @@ zangetsu/
 └── tests/                          # Test suite (pytest + pytest-asyncio)
     ├── __init__.py
     ├── conftest.py                 # Shared fixtures: FakeLLM, fake_context
-    ├── test_config.py              # Settings defaults, env overrides, require_langdock
+    ├── test_config.py              # Settings defaults, env overrides, require_llm_credentials, env file loading
     ├── test_llm.py                 # TokenUsage, LLMResult, FakeLLM
     ├── test_skill_registry.py      # Frontmatter parsing, skill discovery, temperature/seed math
     ├── test_skill_model_routing.py # Per-skill model override field
@@ -301,7 +302,7 @@ Orchestrates the full pipeline including the post-synthesis review loop. Contain
 - `_format_framed_requirement()` -- formats FramedRequirement for user review
 - `_format_plan()` -- formats ChangePlan as terminal-friendly text
 
-### `config.py` (165 lines)
+### `config.py` (~185 lines)
 Configuration via `pydantic-settings.BaseSettings`. Reads from environment
 variables and optionally from `~/.code-council/env` (KEY=VALUE format).
 Environment variables are loaded at module import time so they are available
@@ -314,6 +315,9 @@ LLM client wrapper using the OpenAI Python SDK pointed at any OpenAI-compatible 
 - `LLMClient` Protocol for structural typing
 - `OpenAICompatibleLLM` implementation with retry (exponential backoff, max 3 retries)
   and `asyncio.wait_for()` timeout
+- Per-call model override: all methods accept an optional `model` parameter. If
+  provided (non-empty), the call uses that model instead of the global default.
+  This enables per-skill model routing across the entire pipeline.
 - Both basic API (`complete`/`chat`) and extended API (`complete_with_usage`/
   `chat_with_usage` returning `LLMResult` with token counts)
 
@@ -330,31 +334,41 @@ Project filesystem scanner that builds structured context for advisors.
   change description and framed requirement so users can generate
   `ProjectContext` JSON via an external AI tool instead of scanning locally
 
-### `framer.py` (268 lines)
+### `framer.py` (~270 lines)
 Requirements framing -- Phase 1. Takes a raw feature request, calls the LLM
 with the framer skill prompt, and produces a `FramedRequirement` (type, title,
-description, acceptance criteria, clarifications). Includes
+description, acceptance criteria, clarifications). Supports per-skill model
+routing via `CODE_COUNCIL_MODEL_FRAMER`. Includes
 `_backfill_story_types()` to default missing `type` fields in sub-stories
 (LLMs sometimes omit them). If `needs_clarification()` is true, the CLI
 collects answers for the entire batch of questions locally (no LLM call
 between questions), then makes one LLM call with all answers to re-evaluate.
 Hard cap of `MAX_CLARIFICATION_BATCHES` (3) prevents infinite loops.
 
-### `advisors.py` (~650 lines)
+### `advisors.py` (~740 lines)
 Advisor skill registry, parallel execution engine, and council review.
 - Auto-discovers advisor skills from `skills/*.md` files
 - Parses YAML frontmatter for config (temperature_rank, seed_offset, model override)
+- **Per-advisor model routing**: each advisor can use a different LLM model.
+  Model resolution order (highest priority first):
+  1. Environment variable `CODE_COUNCIL_MODEL_<SKILL_NAME>`
+  2. YAML frontmatter `model:` field in the skill `.md` file
+  3. Global `CODE_COUNCIL_MODEL` default (used when model is empty)
 - Assigns evenly spaced temperatures across advisors (default range: 0.6--1.0)
 - Generates deterministic seeds from SHA-256(plan_id) + offset
-- Runs all advisors in parallel via `asyncio.gather()`
-- `review_plan()` -- each advisor reviews the synthesized plan and returns
-  PROCEED or prioritised recommendations
+- Runs all advisors in parallel via `asyncio.gather()`, passing each advisor's
+  resolved model to the LLM client
+- `review_plan()` -- each advisor reviews the synthesized plan (uses per-advisor
+  model routing)
 - `decide_changes()` -- Business+Architect decision gate reviews all advisor
-  recommendations and decides ACCEPT/DEFER/DROP for each
+  recommendations and decides ACCEPT/DEFER/DROP for each (uses
+  `CODE_COUNCIL_MODEL_DECISION_GATE` if set)
 - `discover_decision_gate_skill()` -- loads the decision gate skill from skills/
 
-### `synthesizer.py`
-Two-pass plan synthesis -- Phase 4.
+### `synthesizer.py` (~430 lines)
+Two-pass plan synthesis -- Phase 4. Both passes support per-skill model
+routing via `CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS` and
+`CODE_COUNCIL_MODEL_SYNTHESIZER`.
 
 - **Pass 1 (conflict analysis):** `analyze_conflicts()` reads all advisor
   outputs and produces a structured markdown document identifying
@@ -609,6 +623,9 @@ one per line, `#` comments supported).
 
 2. **Self-describing skill files** -- Advisors defined by `.md` files with YAML
    frontmatter. Adding an advisor = dropping a file. No code changes needed.
+   Each skill can use a different model via `CODE_COUNCIL_MODEL_<SKILL_NAME>`
+   env vars or `model:` in frontmatter. All pipeline stages (framer, advisors,
+   synthesizer, decision gate, humanizer) support per-skill model routing.
 
 3. **Explicit state machine** -- `VALID_TRANSITIONS` dict (10 states) makes
    illegal state changes unrepresentable. Raises `ValueError` on bad
@@ -641,14 +658,14 @@ one per line, `#` comments supported).
 ## Test Suite
 
 17 test files (+ `conftest.py` with shared fixtures) using `FakeLLM` (no real
-API calls, 231 tests total). Run with `pytest`.
+API calls, 253 tests total). Run with `pytest`.
 
 | Test File | Coverage |
 |---|---|
 | `test_config.py` | Settings defaults, env overrides, require_llm_credentials, env file loading |
 | `test_llm.py` | TokenUsage, LLMResult defaults, FakeLLM response routing |
 | `test_skill_registry.py` | Frontmatter parsing, skill discovery, temperature/seed math |
-| `test_skill_model_routing.py` | Per-skill model override field |
+| `test_skill_model_routing.py` | Per-skill model override field, env var overrides, runtime model routing, non-advisor skills, config/skill mismatch edge cases |
 | `test_context_scanning.py` | Directory tree, tech detection, config files, test patterns |
 | `test_context_gather.py` | gather_context integration, nonexistent paths |
 | `test_context_approval.py` | Dotfile/credential detection, path discovery safety |
