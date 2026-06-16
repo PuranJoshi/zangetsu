@@ -1,5 +1,15 @@
 # Code Council -- Agent Instructions
 
+> **Git workflow -- MANDATORY:**
+> - **NEVER push directly to `main`.** All changes must go through a Pull Request.
+> - Create a feature branch from `main` before making any changes:
+>   ```
+>   git checkout -b <branch-name> main
+>   ```
+> - Use descriptive branch names: `feat/<topic>`, `fix/<topic>`, `refactor/<topic>`.
+> - Commit your changes to the feature branch, then open a PR against `main`.
+> - The PR should have a clear title and description summarising the changes.
+>
 > **Keeping docs in sync:** Before making changes, check `docs/ARCHITECTURE.md`
 > for the current architecture and design.
 > After making changes, update `docs/ARCHITECTURE.md`, `README.md`, and this file
