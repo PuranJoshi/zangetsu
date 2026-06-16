@@ -38,8 +38,8 @@ Create a credentials file or export environment variables:
 ```bash
 mkdir -p ~/.code-council
 cat > ~/.code-council/env << 'EOF'
-LANGDOCK_API_KEY=your-api-key
-LANGDOCK_BASE_URL=https://your-langdock-url/v1
+LLM_API_KEY=your-api-key
+LLM_BASE_URL=https://api.openai.com/v1
 CODE_COUNCIL_MODEL=your-model-identifier
 EOF
 ```

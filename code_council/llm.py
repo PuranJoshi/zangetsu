@@ -1,10 +1,11 @@
-"""Langdock LLM wrapper.
+"""LLM wrapper (OpenAI-compatible).
 
 All provider-specific access lives here. The rest of the codebase calls
 complete(prompt, ...) and never talks to the API directly.
 
-Uses the OpenAI Python SDK as a protocol-compatible client pointed at the
-Langdock base URL. Swapping the provider later means changing this file only.
+Uses the OpenAI Python SDK as a protocol-compatible client pointed at any
+OpenAI-compatible base URL. Works with OpenAI, Azure OpenAI, Ollama,
+LM Studio, Groq, Together AI, or any other OpenAI-compatible endpoint.
 
 Python lesson: AsyncOpenAI
     The openai library provides both sync (OpenAI) and async (AsyncOpenAI)
@@ -111,24 +112,24 @@ class LLMClient(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Real implementation backed by Langdock / OpenAI-compatible API
+# Real implementation backed by any OpenAI-compatible API
 # ---------------------------------------------------------------------------
 
 
-class LangdockLLM:
-    """Async LLM client that talks to a Langdock OpenAI-compatible endpoint.
+class OpenAICompatibleLLM:
+    """Async LLM client that talks to any OpenAI-compatible endpoint.
 
     This is the ONLY class that knows about the API. Everything else
     depends on the LLMClient Protocol, not this concrete class.
-    Swapping providers = rewriting this class, nothing else changes.
+    Swapping providers = changing the base URL and API key.
     """
 
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
-        self._settings.require_langdock()
+        self._settings.require_llm_credentials()
         self._client = AsyncOpenAI(
-            api_key=self._settings.langdock_api_key,
-            base_url=self._settings.langdock_base_url,
+            api_key=self._settings.llm_api_key,
+            base_url=self._settings.llm_base_url,
         )
 
     async def _call_api(
@@ -276,12 +277,12 @@ class LangdockLLM:
 # ---------------------------------------------------------------------------
 
 
-def get_llm(settings: Settings | None = None) -> LangdockLLM:
-    """Create a LangdockLLM using the given (or default) settings.
+def get_llm(settings: Settings | None = None) -> OpenAICompatibleLLM:
+    """Create an OpenAICompatibleLLM using the given (or default) settings.
 
     Why a factory function?
         Same reason as get_settings() -- tests can pass custom settings
         with different API keys/URLs. Production code calls get_llm()
         with no args and gets the real client.
     """
-    return LangdockLLM(settings)
+    return OpenAICompatibleLLM(settings)

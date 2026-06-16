@@ -11,7 +11,7 @@ AI coding agent.
 ## Requirements
 
 - Python >= 3.11
-- A Langdock-compatible API endpoint (or any OpenAI-compatible endpoint)
+- An OpenAI-compatible API endpoint (OpenAI, Azure OpenAI, Ollama, LM Studio, Groq, Together AI, etc.)
 
 ## Setup
 
@@ -30,8 +30,8 @@ pip install -e ".[dev]"
 # 4. Configure credentials
 mkdir -p ~/.code-council
 cat > ~/.code-council/env << 'EOF'
-LANGDOCK_API_KEY=your-api-key
-LANGDOCK_BASE_URL=https://your-langdock-url/v1
+LLM_API_KEY=your-api-key
+LLM_BASE_URL=https://api.openai.com/v1
 CODE_COUNCIL_MODEL=your-model-identifier
 EOF
 ```
@@ -39,8 +39,8 @@ EOF
 Alternatively, export the variables directly in your shell:
 
 ```bash
-export LANGDOCK_API_KEY=your-api-key
-export LANGDOCK_BASE_URL=https://your-langdock-url/v1
+export LLM_API_KEY=your-api-key
+export LLM_BASE_URL=https://api.openai.com/v1
 export CODE_COUNCIL_MODEL=your-model-identifier
 ```
 
@@ -106,8 +106,8 @@ needed.
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `LANGDOCK_API_KEY` | Yes | -- | API key for the LLM endpoint |
-| `LANGDOCK_BASE_URL` | Yes | -- | Base URL of the OpenAI-compatible API |
+| `LLM_API_KEY` | Yes | -- | API key for the LLM endpoint |
+| `LLM_BASE_URL` | Yes | -- | Base URL of the OpenAI-compatible API |
 | `CODE_COUNCIL_MODEL` | No | `REPLACE_ME_WITH_YOUR_MODEL` | Model identifier |
 | `CODE_COUNCIL_AGENT_TIMEOUT_SECONDS` | No | `120` | Per-call timeout |
 | `CODE_COUNCIL_ADVISOR_TEMPERATURE_SPREAD` | No | `0.4` | Temperature range |

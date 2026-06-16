@@ -20,7 +20,7 @@ Python lesson: Protocol
     requiring inheritance. Any class that has a matching `complete()`
     method will satisfy the Protocol. This is "structural subtyping"
     (aka duck typing with type checker support). It means:
-    - Real code uses LangdockLLM (talks to the API)
+    - Real code uses OpenAICompatibleLLM (talks to the API)
     - Tests use FakeLLM (returns canned responses)
     - Neither needs to inherit from LLMClient
 
