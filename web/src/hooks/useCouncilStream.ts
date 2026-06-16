@@ -7,8 +7,22 @@ import type {
   ProjectContext,
   StageTokenUsage,
   TokenUsageData,
+  TokenUsageState,
 } from "../types"
 import { initialSession } from "../types"
+
+/**
+ * Convert frontend TokenUsageState to the backend dict format
+ * expected by TokenTracker.from_dict():
+ *   { stages: { name: { prompt_tokens, ... }, ... }, total: { ... } }
+ */
+function tokenUsageStateToDict(state: TokenUsageState): Record<string, unknown> {
+  const stages: Record<string, TokenUsageData> = {}
+  for (const s of state.stages) {
+    stages[s.stage] = s.usage
+  }
+  return { stages, total: state.total }
+}
 
 export interface UseCouncilStreamResult {
   session: CouncilSession
@@ -18,7 +32,8 @@ export interface UseCouncilStreamResult {
     changeDescription: string,
     framedRequirement: FramedRequirement,
     projectContext?: ProjectContext | null,
-    basePlanId?: string | null
+    basePlanId?: string | null,
+    priorTokenUsage?: TokenUsageState | null
   ) => Promise<void>
   /** Reset session state to advising (call before setPhase to avoid race). */
   prepareReview: () => void
@@ -28,9 +43,10 @@ export interface UseCouncilStreamResult {
     framedRequirement: FramedRequirement,
     feedback: string,
     projectContext?: ProjectContext | null,
-    basePlanId?: string | null
+    basePlanId?: string | null,
+    priorTokenUsage?: TokenUsageState | null
   ) => Promise<void>
-  loadFromPlan: (plan: ChangePlan) => void
+  loadFromPlan: (plan: ChangePlan, tokenUsage?: TokenUsageState | null) => void
   reset: () => void
 }
 
@@ -45,7 +61,8 @@ export function useCouncilStream(): UseCouncilStreamResult {
       changeDescription: string,
       framedRequirement: FramedRequirement,
       projectContext?: ProjectContext | null,
-      basePlanId?: string | null
+      basePlanId?: string | null,
+      priorTokenUsage?: TokenUsageState | null
     ) => {
       // Abort any existing stream
       if (abortRef.current) {
@@ -63,6 +80,9 @@ export function useCouncilStream(): UseCouncilStreamResult {
       })
 
       try {
+        // Convert frontend TokenUsageState to backend dict format
+        const priorDict = priorTokenUsage ? tokenUsageStateToDict(priorTokenUsage) : null
+
         const response = await fetch("/api/council/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -72,6 +92,7 @@ export function useCouncilStream(): UseCouncilStreamResult {
             framed_requirement: framedRequirement,
             project_context: projectContext ?? null,
             base_plan_id: basePlanId ?? null,
+            prior_token_usage: priorDict,
           }),
           signal: controller.signal,
         })
@@ -140,7 +161,8 @@ export function useCouncilStream(): UseCouncilStreamResult {
       framedRequirement: FramedRequirement,
       feedback: string,
       projectContext?: ProjectContext | null,
-      basePlanId?: string | null
+      basePlanId?: string | null,
+      priorTokenUsage?: TokenUsageState | null
     ) => {
       // Abort any existing stream
       if (abortRef.current) {
@@ -160,6 +182,9 @@ export function useCouncilStream(): UseCouncilStreamResult {
       }))
 
       try {
+        // Convert frontend TokenUsageState to backend dict format
+        const priorDict = priorTokenUsage ? tokenUsageStateToDict(priorTokenUsage) : null
+
         const response = await fetch("/api/council/review", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -171,6 +196,7 @@ export function useCouncilStream(): UseCouncilStreamResult {
             action: "re-advise",
             feedback,
             base_plan_id: basePlanId ?? null,
+            prior_token_usage: priorDict,
           }),
           signal: controller.signal,
         })
@@ -363,7 +389,7 @@ export function useCouncilStream(): UseCouncilStreamResult {
     }
   }
 
-  const loadFromPlan = useCallback((plan: ChangePlan) => {
+  const loadFromPlan = useCallback((plan: ChangePlan, tokenUsage?: TokenUsageState | null) => {
     // Hydrate session state from a saved plan (loaded from history)
     const advisorResponses: AdvisorResponse[] = Object.entries(
       plan.raw_advisor_responses || {}
@@ -377,7 +403,7 @@ export function useCouncilStream(): UseCouncilStreamResult {
       plan,
       duration: null,
       error: null,
-      tokenUsage: null,
+      tokenUsage: tokenUsage ?? null,
     })
     setIsRunning(false)
   }, [])

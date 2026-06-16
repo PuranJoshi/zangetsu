@@ -142,6 +142,93 @@ class TestTokenTracker:
         assert "1,050" in summary
 
 
+class TestTokenTrackerFromDict:
+    """Tests for TokenTracker.from_dict() -- reconstruct from a snapshot."""
+
+    def test_roundtrip(self) -> None:
+        """to_dict() -> from_dict() should produce equivalent tracker."""
+        original = TokenTracker()
+        original.record(
+            "framing", TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        )
+        original.record(
+            "advisors",
+            TokenUsage(
+                prompt_tokens=600,
+                completion_tokens=300,
+                total_tokens=900,
+                cache_read_tokens=400,
+            ),
+        )
+
+        restored = TokenTracker.from_dict(original.to_dict())
+        assert restored.total.total_tokens == original.total.total_tokens
+        assert restored.total.prompt_tokens == original.total.prompt_tokens
+        assert restored.total.cache_read_tokens == original.total.cache_read_tokens
+        assert set(restored.stage_usage.keys()) == set(original.stage_usage.keys())
+        assert (
+            restored.stage_usage["framing"].total_tokens
+            == original.stage_usage["framing"].total_tokens
+        )
+        assert (
+            restored.stage_usage["advisors"].cache_read_tokens
+            == original.stage_usage["advisors"].cache_read_tokens
+        )
+
+    def test_empty_dict(self) -> None:
+        """from_dict({}) should produce a zero-valued tracker."""
+        tracker = TokenTracker.from_dict({})
+        assert tracker.total.total_tokens == 0
+        assert len(tracker.stage_usage) == 0
+
+    def test_accumulates_on_top_of_prior(self) -> None:
+        """Recording new usage on a restored tracker should accumulate."""
+        prior = {
+            "stages": {
+                "framing": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                },
+            },
+            "total": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+            },
+        }
+        tracker = TokenTracker.from_dict(prior)
+        tracker.record(
+            "advisors", TokenUsage(prompt_tokens=600, completion_tokens=300, total_tokens=900)
+        )
+        assert tracker.total.total_tokens == 1050
+        assert tracker.stage_usage["framing"].total_tokens == 150
+        assert tracker.stage_usage["advisors"].total_tokens == 900
+
+    def test_same_stage_accumulates_on_prior(self) -> None:
+        """Recording for a stage that exists in prior should add to it."""
+        prior = {
+            "stages": {
+                "advisors": {
+                    "prompt_tokens": 600,
+                    "completion_tokens": 300,
+                    "total_tokens": 900,
+                },
+            },
+            "total": {
+                "prompt_tokens": 600,
+                "completion_tokens": 300,
+                "total_tokens": 900,
+            },
+        }
+        tracker = TokenTracker.from_dict(prior)
+        tracker.record(
+            "advisors", TokenUsage(prompt_tokens=400, completion_tokens=200, total_tokens=600)
+        )
+        assert tracker.stage_usage["advisors"].total_tokens == 1500
+        assert tracker.total.total_tokens == 1500
+
+
 class TestTokenUsageCaching:
     """Tests for cache-related fields on TokenUsage."""
 

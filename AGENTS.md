@@ -19,7 +19,7 @@
 > ```
 > .venv/bin/python -m ruff check .                # lint (rules: E, F, I, W)
 > .venv/bin/python -m ruff format --check .        # format check (CI runs this!)
-> .venv/bin/python -m pytest tests/ -x --tb=short  # tests (263+ tests, no API calls)
+> .venv/bin/python -m pytest tests/ -x --tb=short  # tests (286+ tests, no API calls)
 > cd web && npm run lint                            # frontend eslint
 > cd web && npm run build                           # frontend type check + production build
 > ```
@@ -49,13 +49,14 @@ bankai "Want to build a cash deposit feature"
    structure, tech stack, and relevant files. Files require user approval
    before their content is read.
 
-3. **Advising** -- 6 advisors analyze the framed requirements in parallel:
+3. **Advising** -- 7 advisors analyze the framed requirements in parallel:
    - Executor (how to build it, step by step, acceptance criteria in integration tests, test pyramid, coverage)
    - Security (vulnerabilities, auth, data exposure)
    - Quality (self-documenting code, tests as living documentation, testability)
    - Business (value, scope, tough questions)
    - Architect (structure, patterns, coupling)
    - Risk (what could break, rollback, blast radius)
+   - Fraud (loophole detection, abuse vectors, fraud probability rating, merchant fraud, insider risk, detection/recovery gaps)
 
 4. **Synthesizing** (two-pass) -- First, a conflict analyst reads all advisor
    outputs and produces a structured analysis of agreements, conflicts
@@ -120,6 +121,7 @@ All skills support per-skill model routing via `CODE_COUNCIL_MODEL_<SKILL_NAME>`
 | `business.md` | advisor | `CODE_COUNCIL_MODEL_BUSINESS` |
 | `architect.md` | advisor | `CODE_COUNCIL_MODEL_ARCHITECT` |
 | `risk.md` | advisor | `CODE_COUNCIL_MODEL_RISK` |
+| `fraud.md` | advisor | `CODE_COUNCIL_MODEL_FRAUD` |
 | `framer.md` | framer | `CODE_COUNCIL_MODEL_FRAMER` |
 | `synthesizer_analysis.md` | synthesizer_analysis | `CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS` |
 | `synthesizer.md` | synthesizer | `CODE_COUNCIL_MODEL_SYNTHESIZER` |

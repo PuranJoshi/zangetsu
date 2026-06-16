@@ -97,6 +97,7 @@ def init_transcript(
         "framed_question": None,
         "base_plan_id": base_plan_id,
         "status": status,
+        "token_usage": None,
     }
 
     stem = plan_filename_stem(plan_id, question)
@@ -138,6 +139,32 @@ def append_framer_message(
         message["choices"] = choices
 
     data["framer_messages"].append(message)
+    _write(path, data)
+
+
+def update_token_usage(
+    *,
+    plan_id: str,
+    token_usage: dict[str, Any],
+    transcript_dir: Path | None = None,
+) -> None:
+    """Update the cumulative token usage stored in the transcript.
+
+    Called after each pipeline stage completes (framing, advisors,
+    analysis, synthesis, review, decision_gate).  The ``token_usage``
+    dict should have the same structure as ``TokenTracker.to_dict()``:
+    ``{"stages": {name: usage_dict, ...}, "total": usage_dict}``.
+
+    This gives every transcript a running record of how many tokens
+    the session consumed, persisted at each stage boundary.
+    """
+    path = _transcript_path(plan_id, transcript_dir)
+    data = _read_transcript(path)
+    if data is None:
+        logger.warning("Transcript %s not found; skipping token_usage update", plan_id)
+        return
+
+    data["token_usage"] = token_usage
     _write(path, data)
 
 

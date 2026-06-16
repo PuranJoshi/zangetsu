@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
-import type { ChangePlan, FramedRequirement, PlanSummary } from "../types"
+import type { ChangePlan, FramedRequirement, PlanSummary, TokenUsageState } from "../types"
+import { tokenUsageDictToState } from "../types"
 import { useRoute } from "../hooks/useRoute"
 import { PlanView } from "./PlanView"
 
@@ -14,11 +15,12 @@ function PlanDetail({
 }: {
   planId: string
   onBack: () => void
-  onLoad: (plan: ChangePlan, description: string, framedRequirement?: FramedRequirement) => void
+  onLoad: (plan: ChangePlan, description: string, framedRequirement?: FramedRequirement, tokenUsage?: TokenUsageState | null) => void
 }) {
   const [plan, setPlan] = useState<ChangePlan | null>(null)
   const [description, setDescription] = useState("")
   const [framedReq, setFramedReq] = useState<FramedRequirement | undefined>(undefined)
+  const [savedTokenUsage, setSavedTokenUsage] = useState<TokenUsageState | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -59,6 +61,8 @@ function PlanDetail({
           if (data.framed_requirement) {
             setFramedReq(data.framed_requirement as FramedRequirement)
           }
+          // Extract token_usage from the saved plan data
+          setSavedTokenUsage(tokenUsageDictToState(data.token_usage))
         } else {
           setError("Plan data is empty")
         }
@@ -102,7 +106,7 @@ function PlanDetail({
       plan={plan}
       duration={null}
       onBack={onBack}
-      onLoadIntoSession={() => onLoad(plan, description, framedReq)}
+      onLoadIntoSession={() => onLoad(plan, description, framedReq, savedTokenUsage)}
     />
   )
 }
@@ -213,7 +217,7 @@ function PlanList({ onSelectPlan }: { onSelectPlan: (id: string) => void }) {
 // ---------------------------------------------------------------------------
 
 interface Props {
-  onLoadPlan: (plan: ChangePlan, description: string, framedRequirement?: FramedRequirement) => void
+  onLoadPlan: (plan: ChangePlan, description: string, framedRequirement?: FramedRequirement, tokenUsage?: TokenUsageState | null) => void
 }
 
 export function PlanHistory({ onLoadPlan }: Props) {

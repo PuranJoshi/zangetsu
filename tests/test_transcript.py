@@ -17,6 +17,7 @@ from code_council.transcript import (
     init_transcript,
     load_transcript,
     set_framed_question,
+    update_token_usage,
 )
 
 
@@ -33,6 +34,7 @@ class TestInitTranscript:
         assert data["question"] == "Add user auth"
         assert data["framer_messages"] == []
         assert data["framed_question"] is None
+        assert data["token_usage"] is None
 
     def test_creates_directory_if_missing(self, tmp_path: Path) -> None:
         nested = tmp_path / "deep" / "transcripts"
@@ -286,3 +288,90 @@ class TestFullConversationFlow:
             "user",
             "framer",
         ]
+
+
+class TestUpdateTokenUsage:
+    """Tests for update_token_usage -- persisting token counts to transcripts."""
+
+    def test_stores_token_usage(self, tmp_path: Path) -> None:
+        init_transcript(plan_id="tu-1", question="q", transcript_dir=tmp_path)
+        usage = {
+            "stages": {
+                "framing": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                },
+            },
+            "total": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+            },
+        }
+        update_token_usage(
+            plan_id="tu-1",
+            token_usage=usage,
+            transcript_dir=tmp_path,
+        )
+        data = load_transcript("tu-1", transcript_dir=tmp_path)
+        assert data is not None
+        assert data["token_usage"] == usage
+
+    def test_overwrites_previous_usage(self, tmp_path: Path) -> None:
+        init_transcript(plan_id="tu-2", question="q", transcript_dir=tmp_path)
+        usage_v1 = {"stages": {}, "total": {"total_tokens": 100}}
+        usage_v2 = {
+            "stages": {
+                "framing": {"total_tokens": 100},
+                "advisors": {"total_tokens": 900},
+            },
+            "total": {"total_tokens": 1000},
+        }
+        update_token_usage(
+            plan_id="tu-2",
+            token_usage=usage_v1,
+            transcript_dir=tmp_path,
+        )
+        update_token_usage(
+            plan_id="tu-2",
+            token_usage=usage_v2,
+            transcript_dir=tmp_path,
+        )
+        data = load_transcript("tu-2", transcript_dir=tmp_path)
+        assert data is not None
+        assert data["token_usage"]["total"]["total_tokens"] == 1000
+
+    def test_skips_if_transcript_missing(self, tmp_path: Path) -> None:
+        """Updating token usage on a non-existent transcript should not crash."""
+        update_token_usage(
+            plan_id="nonexistent",
+            token_usage={"stages": {}, "total": {}},
+            transcript_dir=tmp_path,
+        )
+        assert not (tmp_path / "transcript-nonexistent.json").exists()
+
+    def test_preserves_other_fields(self, tmp_path: Path) -> None:
+        """Updating token_usage should not clobber other transcript fields."""
+        init_transcript(plan_id="tu-3", question="q", transcript_dir=tmp_path)
+        append_framer_message(
+            plan_id="tu-3",
+            role="user",
+            text="hello",
+            transcript_dir=tmp_path,
+        )
+        set_framed_question(
+            plan_id="tu-3",
+            framed_question="framed text",
+            transcript_dir=tmp_path,
+        )
+        update_token_usage(
+            plan_id="tu-3",
+            token_usage={"stages": {}, "total": {"total_tokens": 42}},
+            transcript_dir=tmp_path,
+        )
+        data = load_transcript("tu-3", transcript_dir=tmp_path)
+        assert data is not None
+        assert len(data["framer_messages"]) == 1
+        assert data["framed_question"] == "framed text"
+        assert data["token_usage"]["total"]["total_tokens"] == 42

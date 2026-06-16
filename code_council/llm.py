@@ -146,6 +146,35 @@ class TokenTracker:
         self.stage_usage: dict[str, TokenUsage] = {}
         self.total: TokenUsage = TokenUsage()
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TokenTracker":
+        """Reconstruct a TokenTracker from a ``to_dict()`` snapshot.
+
+        Used to seed a tracker with prior cumulative usage so that
+        re-planning and council feedback pipelines accumulate tokens
+        across the full session rather than starting from zero.
+        """
+        tracker = cls()
+        stages = data.get("stages", {})
+        for name, usage_dict in stages.items():
+            usage = TokenUsage(
+                prompt_tokens=usage_dict.get("prompt_tokens", 0),
+                completion_tokens=usage_dict.get("completion_tokens", 0),
+                total_tokens=usage_dict.get("total_tokens", 0),
+                cache_creation_tokens=usage_dict.get("cache_creation_tokens", 0),
+                cache_read_tokens=usage_dict.get("cache_read_tokens", 0),
+            )
+            tracker.stage_usage[name] = usage
+        total = data.get("total", {})
+        tracker.total = TokenUsage(
+            prompt_tokens=total.get("prompt_tokens", 0),
+            completion_tokens=total.get("completion_tokens", 0),
+            total_tokens=total.get("total_tokens", 0),
+            cache_creation_tokens=total.get("cache_creation_tokens", 0),
+            cache_read_tokens=total.get("cache_read_tokens", 0),
+        )
+        return tracker
+
     def record(self, stage: str, usage: TokenUsage) -> None:
         """Add token usage for a pipeline stage."""
         if stage in self.stage_usage:

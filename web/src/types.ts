@@ -93,7 +93,7 @@ export interface ProjectContext {
 }
 
 // ---------------------------------------------------------------------------
-// Advisor config (display metadata for the 6 advisors)
+// Advisor config (display metadata for the 7 advisors)
 // ---------------------------------------------------------------------------
 
 export interface AdvisorDisplayConfig {
@@ -109,6 +109,7 @@ export const ADVISOR_CONFIG: Record<string, AdvisorDisplayConfig> = {
   "Business Advisor":  { color: "#3b82f6", icon: "\uD83D\uDCCA", shortDesc: "Value & scope" },
   "Architect Advisor": { color: "#a855f7", icon: "\uD83C\uDFD7", shortDesc: "Structure & patterns" },
   "Risk Advisor":      { color: "#eab308", icon: "\u26A0", shortDesc: "What could break" },
+  "Fraud Advisor":     { color: "#dc2626", icon: "\uD83D\uDD0D", shortDesc: "Loopholes & abuse" },
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +181,28 @@ export interface StageTokenUsage {
 export interface TokenUsageState {
   stages: StageTokenUsage[]
   total: TokenUsageData
+}
+
+/**
+ * Convert a backend token_usage dict (from TokenTracker.to_dict()) to the
+ * frontend TokenUsageState format.  Returns null if the input is missing
+ * or malformed.
+ *
+ * Backend format:  { stages: { name: { prompt_tokens, ... }, ... }, total: { ... } }
+ * Frontend format: { stages: [{ stage, usage }, ...], total: { ... } }
+ */
+export function tokenUsageDictToState(
+  data: Record<string, unknown> | null | undefined,
+): TokenUsageState | null {
+  if (!data) return null
+  const stagesDict = data.stages as Record<string, TokenUsageData> | undefined
+  const total = data.total as TokenUsageData | undefined
+  if (!stagesDict || !total) return null
+
+  const stages: StageTokenUsage[] = Object.entries(stagesDict).map(
+    ([name, usage]) => ({ stage: name, usage }),
+  )
+  return { stages, total }
 }
 
 // ---------------------------------------------------------------------------

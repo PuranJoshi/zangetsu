@@ -15,7 +15,7 @@ structured implementation plans for code changes through **multi-advisor
 deliberation** -- before any code is written.
 
 The CLI command is `bankai`. A developer describes a feature or change in plain
-English; Code Council frames it as structured requirements, runs 6 independent
+English; Code Council frames it as structured requirements, runs 7 independent
 advisors in parallel, and synthesizes a single actionable plan. The plan is then
 copied into an AI coding agent (OpenCode, Cursor, GitHub Copilot) for execution.
 
@@ -58,6 +58,7 @@ zangetsu/
 │       ├── business.md             # Business & Impact Advisor -- value, scope, tough questions
 │       ├── architect.md            # Architect Advisor -- structure, patterns, coupling
 │       ├── risk.md                 # Risk Advisor -- what could break, rollback, blast radius
+│       ├── fraud.md                # Fraud Advisor -- loophole detection, abuse vectors, fraud probability, merchant fraud, insider risk
 │       ├── synthesizer.md          # Plan Synthesizer -- merges all advisor outputs, enforces quality principles
 │       └── decision_gate.md       # Decision Gate -- Business+Architect decide on advisor recommendations
 ├── web/                             # React + TypeScript web UI (Vite + Tailwind)
@@ -141,7 +142,7 @@ Phase 2  │  PROJECT CONTEXT │  Scan local, upload AI-generated JSON, or skip
     │  Phase 3 & 4 (review loop)         │
     │                                     │
     │  ┌──────────────────┐              │
-    │  │    ADVISING      │  6 advisors  │
+    │  │    ADVISING      │  7 advisors  │
     │  │  (advisors.py)   │  in parallel │
     │  └────────┬─────────┘              │
     │           ▼                         │
@@ -188,7 +189,7 @@ powered by the `POST /council/review` SSE endpoint.
 After synthesis, the user can click **Council Review** to get a stakeholder
 feedback loop on the final plan:
 
-1. All 6 advisors review the plan from their perspective. Each returns
+1. All 7 advisors review the plan from their perspective. Each returns
    either `PROCEED` (plan is sound) or a list of prioritised recommendations.
 2. A **Decision Gate** (Business + Architect combined) reviews all
    recommendations and decides for each: `ACCEPT`, `DEFER`, or `DROP`.
@@ -200,15 +201,18 @@ feedback loop on the final plan:
    regardless of what the decision gate suggested.
 5. **Apply & Re-plan** -- The user clicks "Apply N changes & re-plan" to
    re-run advisors with the accepted changes as feedback, then re-synthesize.
-   The new plan is saved with `council_reviewed` status. The user can also
-   **Dismiss** to discard the council review entirely.
+   The server generates a **new plan_id** for the revised plan (with
+   `base_plan_id` linking back to the original), saves it with
+   `council_reviewed` status, and returns the new ID to the frontend.
+   The user can also **Dismiss** to discard the council review entirely.
 
 This is powered by:
 - `POST /council/feedback` (SSE) -- advisor review + decision gate; results
   are persisted to the plan JSON as a `council_review` field via
   `save_council_review()` in `storage.py`
-- `POST /council/feedback/apply` (SSE) -- re-synthesize with accepted changes,
-  saves plan with `council_reviewed` status
+- `POST /council/feedback/apply` (SSE) -- generates a new plan_id,
+  re-synthesizes with accepted changes, saves as a separate plan file
+  with `council_reviewed` status and `base_plan_id` linking to the original
 
 ### Re-advise from history
 
@@ -319,7 +323,7 @@ Prompt caching settings (`code_council_prompt_caching`,
 `code_council_provider_type`) and `is_anthropic_provider()` helper for
 provider detection.
 
-### `llm.py` (~460 lines)
+### `llm.py` (~540 lines)
 LLM client wrapper using the OpenAI Python SDK pointed at any OpenAI-compatible endpoint.
 - `TokenUsage` dataclass with `__add__`, `__iadd__`, `to_dict()` for easy
   accumulation across multiple LLM calls. Includes `cache_creation_tokens`
@@ -386,8 +390,8 @@ All functions use `complete_with_usage()` and return `TokenUsage` for tracking.
   2. YAML frontmatter `model:` field in the skill `.md` file
   3. Global `CODE_COUNCIL_MODEL` default (used when model is empty)
 - **Prompt caching**: shared project context is extracted into a separate
-  `system_prompt` via `_advisor_system_prompt()`. All 6 advisors receive the
-  same system message, enabling provider-side cache hits on calls 2-6. Plan
+  `system_prompt` via `_advisor_system_prompt()`. All 7 advisors receive the
+  same system message, enabling provider-side cache hits on calls 2-7. Plan
   review and decision gate prompts are similarly split.
 - Assigns evenly spaced temperatures across advisors (default range: 0.6--1.0)
 - Generates deterministic seeds from SHA-256(plan_id) + offset
@@ -432,29 +436,35 @@ dict enforces legal state changes. Tracks negotiation rounds.
 ### `storage.py` (~290 lines)
 JSON file-based plan persistence at `~/.code-council/plans/`. Filenames use
 `plan-<hex>-<slug>.json` for human readability; the stored `plan_id` is the
-hex-only identifier. Council-reviewed plans are saved as separate
-`plan-<hex>-<slug>-revised.json` files so the original plan is preserved for
-comparison. Load and delete use glob matching (`plan-<hex>-*.json`) with
-backward-compat exact match for old-format files. Saves plan data, state,
-advisor responses, context summary, token usage, and timestamps. Forgiving on
-load (returns None for missing/corrupt files). Supports `base_plan_id` for
-linking re-advise plans back to their original plan. Optional `token_usage`
-parameter (from `TokenTracker.to_dict()`) persists per-stage and total token
-counts in the plan JSON. `save_council_review()` appends council review results
-(advisor reviews + decision gate output) to the original plan file (not the
-revised variant) via read-modify-write.
+hex-only identifier. Council-reviewed plans get a new server-generated
+`plan_id` (with `base_plan_id` linking back to the original), so they are
+saved as separate files naturally via the unique hex prefix. Load and delete
+use glob matching (`plan-<hex>-*.json`) with backward-compat exact match for
+old-format files. Saves plan data, state, advisor responses, context summary,
+token usage, and timestamps. Forgiving on load (returns None for missing/corrupt
+files). Supports `base_plan_id` for linking re-advise and council-reviewed plans
+back to their original. Optional `token_usage` parameter (from
+`TokenTracker.to_dict()`) persists per-stage and total token counts in the plan
+JSON. `save_council_review()` appends council review results (advisor reviews +
+decision gate output) to the plan file via read-modify-write.
 
-### `transcript.py` (~230 lines)
+### `transcript.py` (~260 lines)
 Session transcript storage at `~/.code-council/transcripts/`. Records the
 running dialogue of a bankai session: original question, every framer exchange
-(question, answer, choices), and the final framed requirement. Filenames use
-`transcript-<hex>-<slug>.json`; lookup uses glob matching with backward-compat
-exact match. Created by both the CLI and the web UI WebSocket framer.
+(question, answer, choices), the final framed requirement, and cumulative token
+usage. Filenames use `transcript-<hex>-<slug>.json`; lookup uses glob matching
+with backward-compat exact match. Created by both the CLI and the web UI
+WebSocket framer.
 Contains:
 - `init_transcript()` -- creates transcript file with original question.
   Accepts optional `base_plan_id` (links review transcripts to their original)
   and `status` (`"active"` for normal, `"review"` for re-advise sessions).
+  Initialises `token_usage` to `null`.
 - `append_framer_message()` -- appends a user or framer message
+- `update_token_usage()` -- replaces the cumulative `token_usage` dict with
+  the latest `TokenTracker.to_dict()` snapshot. Called after each pipeline
+  stage (framing, advisors, analysis, synthesis) so the transcript always
+  has a running record of session token consumption.
 - `set_framed_question()` -- records the final framed requirement text
 - `load_transcript()` -- loads transcript by plan_id (None if missing/corrupt)
 - `list_recent_transcripts()` -- lists recent transcripts with summary
@@ -487,6 +497,7 @@ The body contains the system prompt for that advisor.
 | `business.md` | advisor | 3 | Problem validation, value, opportunity cost |
 | `architect.md` | advisor | 4 | Module boundaries, coupling, existing patterns |
 | `risk.md` | advisor | 5 | Breaking changes, backward compat, rollback |
+| `fraud.md` | advisor | 7 | Loophole detection, abuse vectors, fraud probability rating, merchant fraud, insider risk, detection/recovery gaps |
 | `framer.md` | framer | -- | Work classification, acceptance criteria |
 | `synthesizer_analysis.md` | synthesizer_analysis | -- | Pass 1: conflict analysis -- identifies agreements, conflicts, resolutions, emergent insights |
 | `synthesizer.md` | synthesizer | -- | Pass 2: merged actionable plan from pre-computed analysis, enforces self-documenting code, test pyramid, coverage |
@@ -517,8 +528,13 @@ OpenAI: via `getattr` fallback for forward-compatibility).
 stage_usage: dict[str, TokenUsage] # per-stage accumulated usage
 total: TokenUsage                  # cumulative across all stages
 ```
-Methods: `record(stage, usage)`, `to_dict()`, `format_stage_line(stage)`,
-`format_summary()`.
+Methods: `record(stage, usage)`, `to_dict()`, `from_dict(data)` (class method),
+`format_stage_line(stage)`, `format_summary()`.
+
+`from_dict()` reconstructs a tracker from a `to_dict()` snapshot, used to seed
+a tracker with prior cumulative usage so that re-planning and council feedback
+pipelines accumulate tokens across the full session rather than starting from
+zero.
 
 ### `FramedRequirement` (framer.py)
 ```
@@ -604,6 +620,7 @@ framer_messages: list[dict]        # [{role, text, msg_id?, choices?}, ...]
 framed_question: str | null        # final framed requirement text
 base_plan_id: str | null           # original plan this review is based on (null for first plans)
 status: str                        # "active" for normal, "review" for re-advise sessions
+token_usage: dict | null           # cumulative TokenTracker.to_dict(), updated at each stage boundary
 ```
 
 ### `PlanState` (state.py)
@@ -717,18 +734,24 @@ one per line, `#` comments supported).
    `/history`). Plan detail navigation is handled by component state, not
    deep-linked URLs, keeping the router minimal.
 
-10. **Per-stage token tracking** -- Every `complete_with_usage()` /
-    `chat_with_usage()` call returns `TokenUsage` alongside the text.
-    Pipeline functions return it as part of their result tuples.
-    `TokenTracker` accumulates per-stage totals. CLI displays inline +
-    summary table. Web UI streams `token_usage/update` SSE events into
-    `TokenUsageSidebar`. Framing tokens are tracked via WebSocket messages.
-    All token data is persisted in the saved plan JSON.
+10. **Per-stage token tracking with cumulative persistence** -- Every
+    `complete_with_usage()` / `chat_with_usage()` call returns `TokenUsage`
+    alongside the text. Pipeline functions return it as part of their result
+    tuples. `TokenTracker` accumulates per-stage totals. CLI displays
+    inline + summary table. Web UI streams `token_usage/update` SSE events
+    into `TokenUsageSidebar`. Framing tokens are tracked via WebSocket
+    messages. All token data is persisted in both the saved plan JSON and
+    the transcript JSON (via `update_token_usage()` at each stage boundary).
+    When re-planning (council apply, re-advise), the frontend sends the
+    cumulative `prior_token_usage` to the backend, which seeds the
+    `TokenTracker` via `from_dict()` so tokens accumulate across the full
+    session rather than resetting. The frontend preserves cumulative tokens
+    in state that survives hook resets.
 
 11. **LLM prompt caching** -- Shared content (project context, skill text)
     is split into system messages so LLM providers can cache it across
     calls. All 6 advisor calls share an identical system message prefix,
-    enabling cache hits on calls 2-6. Anthropic: explicit `cache_control`
+     enabling cache hits on calls 2-7. Anthropic: explicit `cache_control`
     breakpoints (90% discount). OpenAI: automatic prefix caching for
     prefixes >= 1024 tokens (50% discount). Controlled by
     `CODE_COUNCIL_PROMPT_CACHING` (default: `True`) and
@@ -745,12 +768,12 @@ one per line, `#` comments supported).
 ## Test Suite
 
 17 test files (+ `conftest.py` with shared fixtures) using `FakeLLM` (no real
-API calls, 278 tests total). Run with `pytest`.
+API calls, 286 tests total). Run with `pytest`.
 
 | Test File | Coverage |
 |---|---|
 | `test_config.py` | Settings defaults, env overrides, require_llm_credentials, env file loading, prompt caching config (provider detection, auto/anthropic/openai/none) |
-| `test_llm.py` | TokenUsage (defaults, add, iadd, to_dict, cache fields), LLMResult, TokenTracker (record, accumulate, to_dict, format, cache display), FakeLLM response routing + system_prompt support |
+| `test_llm.py` | TokenUsage (defaults, add, iadd, to_dict, cache fields), LLMResult, TokenTracker (record, accumulate, to_dict, from_dict roundtrip, prior accumulation, format, cache display), FakeLLM response routing + system_prompt support |
 | `test_skill_registry.py` | Frontmatter parsing, skill discovery, temperature/seed math |
 | `test_skill_model_routing.py` | Per-skill model override field, env var overrides, runtime model routing, non-advisor skills, config/skill mismatch edge cases |
 | `test_context_scanning.py` | Directory tree, tech detection, config files, test patterns |
@@ -762,7 +785,7 @@ API calls, 278 tests total). Run with `pytest`.
 | `test_state_status.py` | PlanStatus enum values |
 | `test_state_transitions.py` | Happy path, invalid transitions, council review transitions, recovery paths |
 | `test_state_negotiation.py` | can_negotiate boundary, round recording |
-| `test_transcript.py` | Init, append, load, full conversation flow |
+| `test_transcript.py` | Init, append, load, full conversation flow, update_token_usage persistence |
 | `test_load_context.py` | Plan ID generation, slugify, plan_filename_stem, context resolution, Q&A extraction, resume points |
 | `test_export_markdown.py` | Markdown conversion, humaniser skill loader, all plan sections |
 | `test_review_init.py` | Re-advise review init: transcript creation, base_plan_id linking, framer context copy, feedback append, no plan created, storage base_plan_id |
