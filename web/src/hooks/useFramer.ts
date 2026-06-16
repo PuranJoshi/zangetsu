@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import type { FramerMessage, FramerStatus, FramedRequirement } from "../types"
+import type { FramerMessage, FramerStatus, FramedRequirement, TokenUsageData } from "../types"
 
 export interface UseFramerResult {
   messages: FramerMessage[]
@@ -9,6 +9,8 @@ export interface UseFramerResult {
   /** plan_id returned by the server (transcript was created with this ID). */
   planId: string | null
   error: string | null
+  /** Cumulative token usage from framing LLM calls. */
+  tokenUsage: TokenUsageData | null
   startFraming: (question: string, planId?: string) => void
   sendReply: (text: string) => void
   skipFraming: () => void
@@ -22,6 +24,7 @@ export function useFramer(): UseFramerResult {
   const [requestId, setRequestId] = useState<string | null>(null)
   const [planId, setPlanId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageData | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const pendingMsgIdRef = useRef<string | null>(null)
@@ -49,6 +52,7 @@ export function useFramer(): UseFramerResult {
     setRequestId(null)
     setPlanId(null)
     setError(null)
+    setTokenUsage(null)
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws/framer`)
@@ -68,6 +72,7 @@ export function useFramer(): UseFramerResult {
         case "framer_question":
           pendingMsgIdRef.current = data.msg_id
           if (data.plan_id) setPlanId(data.plan_id)
+          if (data.token_usage) setTokenUsage(data.token_usage)
           setMessages((prev) => [
             ...prev,
             {
@@ -84,6 +89,7 @@ export function useFramer(): UseFramerResult {
           setFramedRequirement(data.framed_requirement)
           setRequestId(data.request_id)
           if (data.plan_id) setPlanId(data.plan_id)
+          if (data.token_usage) setTokenUsage(data.token_usage)
           setStatus("done")
           break
 
@@ -170,6 +176,7 @@ export function useFramer(): UseFramerResult {
     requestId,
     planId,
     error,
+    tokenUsage,
     startFraming,
     sendReply,
     skipFraming,

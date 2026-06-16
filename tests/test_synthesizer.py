@@ -34,7 +34,7 @@ class TestExtractJson:
 @pytest.mark.asyncio
 async def test_synthesize_produces_valid_plan(fake_llm, fake_context) -> None:
     """FakeLLM returns canned JSON plan. Synthesizer should parse it."""
-    plan = await synthesize_plan(
+    plan, usage = await synthesize_plan(
         change_description="Add a feature",
         advisor_responses={
             "Architect Advisor": "Fits well.",
@@ -54,13 +54,14 @@ async def test_synthesize_produces_valid_plan(fake_llm, fake_context) -> None:
     assert len(plan.implementation_steps) > 0
     assert plan.risk_level in ("LOW", "MEDIUM", "HIGH")
     assert plan.estimated_effort in ("S", "M", "L", "XL")
+    assert usage.total_tokens > 0
 
 
 @pytest.mark.asyncio
 async def test_synthesize_preserves_advisor_responses(fake_llm, fake_context) -> None:
     """Raw advisor responses should be stored for audit."""
     responses = {"Architect Advisor": "Test response"}
-    plan = await synthesize_plan(
+    plan, _usage = await synthesize_plan(
         change_description="Test",
         advisor_responses=responses,
         context=fake_context,
@@ -87,7 +88,7 @@ SAMPLE_ADVISOR_RESPONSES = {
 @pytest.mark.asyncio
 async def test_analyze_conflicts_returns_markdown(fake_llm, fake_context) -> None:
     """Pass 1 should return a markdown conflict analysis, not JSON."""
-    analysis = await analyze_conflicts(
+    analysis, usage = await analyze_conflicts(
         change_description="Add a feature",
         advisor_responses=SAMPLE_ADVISOR_RESPONSES,
         context=fake_context,
@@ -96,12 +97,13 @@ async def test_analyze_conflicts_returns_markdown(fake_llm, fake_context) -> Non
     assert isinstance(analysis, str)
     assert "Advisor Position Summary" in analysis
     assert len(analysis) > 0
+    assert usage.total_tokens > 0
 
 
 @pytest.mark.asyncio
 async def test_analyze_conflicts_prompt_contains_advisor_names(fake_llm, fake_context) -> None:
     """The analysis prompt should include all advisor names."""
-    await analyze_conflicts(
+    _analysis, _usage = await analyze_conflicts(
         change_description="Add a feature",
         advisor_responses=SAMPLE_ADVISOR_RESPONSES,
         context=fake_context,
@@ -118,13 +120,13 @@ async def test_two_pass_synthesis_makes_two_llm_calls(fake_llm, fake_context) ->
     """Full two-pass flow should make exactly 2 LLM calls."""
     initial_count = fake_llm.call_count
 
-    analysis = await analyze_conflicts(
+    analysis, _usage1 = await analyze_conflicts(
         change_description="Add a feature",
         advisor_responses=SAMPLE_ADVISOR_RESPONSES,
         context=fake_context,
         llm=fake_llm,
     )
-    plan = await synthesize_plan(
+    plan, _usage2 = await synthesize_plan(
         change_description="Add a feature",
         advisor_responses=SAMPLE_ADVISOR_RESPONSES,
         context=fake_context,
@@ -139,13 +141,13 @@ async def test_two_pass_synthesis_makes_two_llm_calls(fake_llm, fake_context) ->
 @pytest.mark.asyncio
 async def test_synthesis_prompt_contains_conflict_analysis(fake_llm, fake_context) -> None:
     """When conflict_analysis is provided, it should appear in the synthesis prompt."""
-    analysis = await analyze_conflicts(
+    analysis, _usage1 = await analyze_conflicts(
         change_description="Add a feature",
         advisor_responses=SAMPLE_ADVISOR_RESPONSES,
         context=fake_context,
         llm=fake_llm,
     )
-    await synthesize_plan(
+    _plan, _usage2 = await synthesize_plan(
         change_description="Add a feature",
         advisor_responses=SAMPLE_ADVISOR_RESPONSES,
         context=fake_context,
@@ -162,7 +164,7 @@ async def test_synthesis_prompt_contains_conflict_analysis(fake_llm, fake_contex
 @pytest.mark.asyncio
 async def test_synthesize_without_analysis_still_works(fake_llm, fake_context) -> None:
     """Backward compatibility: synthesize_plan without conflict_analysis."""
-    plan = await synthesize_plan(
+    plan, _usage = await synthesize_plan(
         change_description="Add a feature",
         advisor_responses=SAMPLE_ADVISOR_RESPONSES,
         context=fake_context,

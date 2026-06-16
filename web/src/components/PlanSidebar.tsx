@@ -83,7 +83,7 @@ export function PlanSidebar({ activePlanId, onSelectPlan, refreshKey }: Props) {
   }, [fetchPlans, refreshKey])
 
   return (
-    <aside className="plan-sidebar flex flex-col border-r border-border bg-surface-secondary">
+    <aside className="flex flex-col flex-1 min-h-0">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
         <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">

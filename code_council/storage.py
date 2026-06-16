@@ -55,6 +55,7 @@ def save_plan(
     context_summary: str,
     framed_requirement: dict[str, Any] | None = None,
     base_plan_id: str | None = None,
+    token_usage: dict[str, Any] | None = None,
     settings: Settings | None = None,
 ) -> Path | None:
     """Persist a plan as JSON. Returns the file path or None if disabled.
@@ -68,6 +69,8 @@ def save_plan(
             reconstruct the framing without re-running the LLM.
         base_plan_id: For re-advise plans, the plan_id of the original
             plan this review is based on.  ``None`` for first-time plans.
+        token_usage: Per-stage and total token usage from the pipeline.
+            Produced by ``TokenTracker.to_dict()``.
     """
     settings = settings or get_settings()
     if not settings.code_council_save_plans:
@@ -100,6 +103,8 @@ def save_plan(
     }
     if framed_requirement is not None:
         data["framed_requirement"] = framed_requirement
+    if token_usage is not None:
+        data["token_usage"] = token_usage
 
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     logger.info("Plan saved to %s", path)

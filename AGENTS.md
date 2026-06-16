@@ -19,10 +19,11 @@
 > ```
 > .venv/bin/python -m ruff check .                # lint (rules: E, F, I, W)
 > .venv/bin/python -m ruff format --check .        # format check (CI runs this!)
-> .venv/bin/python -m pytest tests/ -x --tb=short  # tests (253+ tests, no API calls)
-> cd web && npx tsc --noEmit                        # frontend type check
+> .venv/bin/python -m pytest tests/ -x --tb=short  # tests (263+ tests, no API calls)
+> cd web && npm run lint                            # frontend eslint
+> cd web && npm run build                           # frontend type check + production build
 > ```
-> All four must pass before considering a change complete.
+> All five must pass before considering a change complete.
 > These match the CI pipeline in `.github/workflows/ci.yml` exactly.
 
 ## What is Code Council?

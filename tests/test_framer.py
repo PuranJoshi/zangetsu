@@ -118,7 +118,7 @@ async def test_frame_request_returns_valid_requirement(fake_llm) -> None:
     Uses the FakeLLM from conftest.py which returns canned JSON for
     framer prompts.
     """
-    result = await frame_request(
+    result, usage = await frame_request(
         change_description="Add user authentication",
         context_summary="Python FastAPI project",
         llm=fake_llm,
@@ -126,3 +126,4 @@ async def test_frame_request_returns_valid_requirement(fake_llm) -> None:
     assert isinstance(result, FramedRequirement)
     assert result.type in ("epic", "story", "task", "bug")
     assert result.title != ""
+    assert usage.total_tokens > 0

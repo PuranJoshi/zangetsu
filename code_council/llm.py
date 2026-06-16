@@ -58,11 +58,37 @@ class TokenUsage:
     Why track this? LLM calls cost money. By recording token usage per
     call, we can show the user how much each plan costs and optimize
     prompts that are too expensive.
+
+    Supports addition (``usage_a + usage_b``) for easy aggregation
+    across multiple LLM calls within a pipeline stage.
     """
 
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+
+    def __add__(self, other: TokenUsage) -> TokenUsage:
+        """Accumulate token counts: ``usage_a + usage_b``."""
+        return TokenUsage(
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+        )
+
+    def __iadd__(self, other: TokenUsage) -> TokenUsage:
+        """In-place addition: ``usage += other_usage``."""
+        self.prompt_tokens += other.prompt_tokens
+        self.completion_tokens += other.completion_tokens
+        self.total_tokens += other.total_tokens
+        return self
+
+    def to_dict(self) -> dict[str, int]:
+        """Serialize to a plain dict for JSON storage / SSE events."""
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+        }
 
 
 @dataclass
@@ -81,6 +107,76 @@ class LLMResult:
 
 
 # ---------------------------------------------------------------------------
+# Token tracker (per-stage accumulator)
+# ---------------------------------------------------------------------------
+
+
+class TokenTracker:
+    """Accumulates token usage per pipeline stage and overall total.
+
+    Usage::
+
+        tracker = TokenTracker()
+        tracker.record("framing", usage_from_framer)
+        tracker.record("advisors", usage_from_advisors)
+        print(tracker.format_stage_line("framing"))  # inline display
+        print(tracker.format_summary())               # final table
+
+    Each call to ``record()`` either creates a new stage entry or adds
+    to an existing one.  The ``total`` is updated on every call.
+    """
+
+    def __init__(self) -> None:
+        self.stage_usage: dict[str, TokenUsage] = {}
+        self.total: TokenUsage = TokenUsage()
+
+    def record(self, stage: str, usage: TokenUsage) -> None:
+        """Add token usage for a pipeline stage."""
+        if stage in self.stage_usage:
+            self.stage_usage[stage] += usage
+        else:
+            self.stage_usage[stage] = TokenUsage(
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                total_tokens=usage.total_tokens,
+            )
+        self.total += usage
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for JSON storage."""
+        return {
+            "stages": {name: u.to_dict() for name, u in self.stage_usage.items()},
+            "total": self.total.to_dict(),
+        }
+
+    def format_stage_line(self, stage: str) -> str:
+        """One-liner for display after a stage completes."""
+        usage = self.stage_usage.get(stage, TokenUsage())
+        return (
+            f"  {stage.title()}: {usage.total_tokens:,} tokens "
+            f"({usage.prompt_tokens:,} in + {usage.completion_tokens:,} out) "
+            f"| Total: {self.total.total_tokens:,}"
+        )
+
+    def format_summary(self) -> str:
+        """Full summary table for display at the end of the pipeline."""
+        sep = "=" * 60
+        lines = [f"\n{sep}", " TOKEN USAGE", sep]
+        for name, usage in self.stage_usage.items():
+            lines.append(
+                f"  {name.title():<14} {usage.total_tokens:>6,} tokens "
+                f"({usage.prompt_tokens:,} in + {usage.completion_tokens:,} out)"
+            )
+        lines.append("  " + "\u2500" * 44)
+        lines.append(
+            f"  {'Total':<14} {self.total.total_tokens:>6,} tokens "
+            f"({self.total.prompt_tokens:,} in + {self.total.completion_tokens:,} out)"
+        )
+        lines.append(sep)
+        return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Protocol
 # ---------------------------------------------------------------------------
 
@@ -90,8 +186,8 @@ class LLMClient(Protocol):
 
     This is the same Protocol defined in advisors.py. Having it here
     too is intentional -- each module is independently importable.
-    The Protocol is so small (2 methods) that duplication is cleaner
-    than a shared module just for a type.
+    The Protocol is so small that duplication is cleaner than a shared
+    module just for a type.
     """
 
     async def complete(
@@ -111,6 +207,24 @@ class LLMClient(Protocol):
         seed: int | None = None,
         model: str | None = None,
     ) -> str: ...
+
+    async def complete_with_usage(
+        self,
+        prompt: str,
+        *,
+        temperature: float | None = None,
+        seed: int | None = None,
+        model: str | None = None,
+    ) -> LLMResult: ...
+
+    async def chat_with_usage(
+        self,
+        messages: list[Message],
+        *,
+        temperature: float | None = None,
+        seed: int | None = None,
+        model: str | None = None,
+    ) -> LLMResult: ...
 
 
 # ---------------------------------------------------------------------------

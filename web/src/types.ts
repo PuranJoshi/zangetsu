@@ -163,6 +163,26 @@ export interface ChangePlan {
 }
 
 // ---------------------------------------------------------------------------
+// Token usage tracking
+// ---------------------------------------------------------------------------
+
+export interface TokenUsageData {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+}
+
+export interface StageTokenUsage {
+  stage: string
+  usage: TokenUsageData
+}
+
+export interface TokenUsageState {
+  stages: StageTokenUsage[]
+  total: TokenUsageData
+}
+
+// ---------------------------------------------------------------------------
 // Session state (used by useCouncilStream)
 // ---------------------------------------------------------------------------
 
@@ -174,6 +194,7 @@ export interface CouncilSession {
   plan: ChangePlan | null
   duration: number | null
   error: string | null
+  tokenUsage: TokenUsageState | null
 }
 
 export function initialSession(): CouncilSession {
@@ -185,6 +206,7 @@ export function initialSession(): CouncilSession {
     plan: null,
     duration: null,
     error: null,
+    tokenUsage: null,
   }
 }
 
@@ -248,4 +270,5 @@ export interface CouncilFeedbackState {
   advisorReviews: AdvisorReview[]
   decision: CouncilDecision | null
   error: string | null
+  tokenUsage: TokenUsageState | null
 }

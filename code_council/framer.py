@@ -31,6 +31,7 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from code_council.config import get_skill_model
+from code_council.llm import LLMResult, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,15 @@ class LLMClient(Protocol):
         seed: int | None = None,
         model: str | None = None,
     ) -> str: ...
+
+    async def complete_with_usage(
+        self,
+        prompt: str,
+        *,
+        temperature: float | None = None,
+        seed: int | None = None,
+        model: str | None = None,
+    ) -> LLMResult: ...
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +241,7 @@ async def frame_request(
     context_summary: str,
     llm: LLMClient,
     clarification_answers: str = "",
-) -> FramedRequirement:
+) -> tuple[FramedRequirement, TokenUsage]:
     """Frame a raw feature request into structured requirements.
 
     This is the entry point called by the bankai pipeline. It:
@@ -240,10 +250,14 @@ async def frame_request(
     3. Parses the JSON response into a FramedRequirement
     4. If parsing fails, retries once with a repair prompt
 
+    Returns ``(FramedRequirement, TokenUsage)`` -- the framed result
+    plus accumulated token usage from all LLM calls in this stage.
+
     The caller checks result.needs_clarification() to decide whether
     to pause and ask the user for answers, or proceed to advisors.
     """
     framer_model = get_skill_model("framer") or None
+    stage_usage = TokenUsage()
 
     prompt = _framer_prompt(
         change_description,
@@ -251,7 +265,9 @@ async def frame_request(
         clarification_answers,
     )
 
-    raw_response = await llm.complete(prompt, model=framer_model)
+    result = await llm.complete_with_usage(prompt, model=framer_model)
+    raw_response = result.text
+    stage_usage += result.usage
 
     json_text = _extract_json(raw_response)
 
@@ -264,9 +280,11 @@ async def frame_request(
             "Please fix the JSON and return ONLY the corrected JSON block:\n\n"
             f"{raw_response}"
         )
-        raw_response = await llm.complete(repair_prompt, model=framer_model)
+        retry_result = await llm.complete_with_usage(repair_prompt, model=framer_model)
+        raw_response = retry_result.text
+        stage_usage += retry_result.usage
         json_text = _extract_json(raw_response)
         data = json.loads(json_text)
 
     _backfill_story_types(data)
-    return FramedRequirement(**data)
+    return FramedRequirement(**data), stage_usage

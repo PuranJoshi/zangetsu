@@ -215,7 +215,7 @@ class TestModelPassedToLLM:
             temperature_rank=1,
         )
 
-        await run_advisors(
+        _responses, _params, _timing, _usage = await run_advisors(
             change_description="Add a feature",
             context=fake_context,
             llm=fake_llm,
@@ -337,7 +337,7 @@ class TestConfigSkillMismatch:
         Verifies the non-advisor pipeline stage picks up the env var.
         """
         monkeypatch.setenv("CODE_COUNCIL_MODEL_FRAMER", "gpt-4o")
-        await frame_request(
+        _result, _usage = await frame_request(
             change_description="Add a login page",
             context_summary="Python FastAPI project",
             llm=fake_llm,
@@ -355,7 +355,7 @@ class TestConfigSkillMismatch:
         """User sets CODE_COUNCIL_MODEL_SYNTHESIZER -- it should reach llm.complete()."""
         monkeypatch.setenv("CODE_COUNCIL_MODEL_SYNTHESIZER", "gpt-4o")
         advisor_responses = {"Test Advisor": "Looks good."}
-        await synthesize_plan(
+        _plan, _usage = await synthesize_plan(
             change_description="Add a feature",
             advisor_responses=advisor_responses,
             context=fake_context,
@@ -375,7 +375,7 @@ class TestConfigSkillMismatch:
         """User sets CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS -- it should reach llm.complete()."""
         monkeypatch.setenv("CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS", "gpt-4o")
         advisor_responses = {"Test Advisor": "Looks good."}
-        await analyze_conflicts(
+        _analysis, _usage = await analyze_conflicts(
             change_description="Add a feature",
             advisor_responses=advisor_responses,
             context=fake_context,
@@ -395,7 +395,7 @@ class TestConfigSkillMismatch:
         The LLM client then uses its global CODE_COUNCIL_MODEL default.
         """
         advisor_responses = {"Test Advisor": "Looks good."}
-        await synthesize_plan(
+        _plan, _usage = await synthesize_plan(
             change_description="Add a feature",
             advisor_responses=advisor_responses,
             context=fake_context,

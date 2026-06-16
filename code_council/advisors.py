@@ -46,6 +46,7 @@ import yaml
 
 from code_council.config import get_skill_model
 from code_council.context import ProjectContext
+from code_council.llm import LLMResult, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,15 @@ class LLMClient(Protocol):
         seed: int | None = None,
         model: str | None = None,
     ) -> str: ...
+
+    async def complete_with_usage(
+        self,
+        prompt: str,
+        *,
+        temperature: float | None = None,
+        seed: int | None = None,
+        model: str | None = None,
+    ) -> LLMResult: ...
 
 
 # ---------------------------------------------------------------------------
@@ -448,8 +458,10 @@ async def run_advisors(
     temperature_spread: float = 0.4,
     negotiation_feedback: str = "",
     skills_dir: Path | None = None,
-) -> tuple[dict[str, str], dict[str, dict[str, Any]], dict[str, float]]:
+) -> tuple[dict[str, str], dict[str, dict[str, Any]], dict[str, float], TokenUsage]:
     """Run all discovered advisors in parallel and return their responses.
+
+    Returns ``(advisor_responses, advisor_params, timing, token_usage)``.
 
     Python lesson: asyncio.gather()
         gather() runs multiple coroutines concurrently. It waits for ALL
@@ -476,7 +488,7 @@ async def run_advisors(
             "seed": _advisor_seed(skill.seed_offset, plan_id),
         }
 
-    async def _run_one(skill: AdvisorSkill) -> tuple[str, str]:
+    async def _run_one(skill: AdvisorSkill) -> tuple[str, str, TokenUsage]:
         prompt = _advisor_prompt(
             skill,
             change_description,
@@ -484,22 +496,27 @@ async def run_advisors(
             negotiation_feedback,
         )
         params = advisor_params[skill.display_name]
-        response = await llm.complete(
+        result = await llm.complete_with_usage(
             prompt,
             temperature=params["temperature"],
             seed=params["seed"],
             model=skill.model or None,
         )
-        return skill.display_name, response
+        return skill.display_name, result.text, result.usage
 
     t0 = time.monotonic()
     results = await asyncio.gather(*[_run_one(s) for s in skills])
     duration = time.monotonic() - t0
 
-    advisor_responses: dict[str, str] = dict(results)
+    advisor_responses: dict[str, str] = {}
+    stage_usage = TokenUsage()
+    for name, text, usage in results:
+        advisor_responses[name] = text
+        stage_usage += usage
+
     timing = {"start": t0, "duration": round(duration, 3)}
 
-    return advisor_responses, advisor_params, timing
+    return advisor_responses, advisor_params, timing, stage_usage
 
 
 # ---------------------------------------------------------------------------
@@ -626,11 +643,11 @@ async def review_plan(
     plan_id: str,
     temperature_spread: float = 0.4,
     skills_dir: Path | None = None,
-) -> tuple[dict[str, str], dict[str, float]]:
+) -> tuple[dict[str, str], dict[str, float], TokenUsage]:
     """Each advisor reviews the synthesized plan and returns feedback.
 
-    Returns (advisor_reviews, timing). Each review is either "PROCEED"
-    or a list of prioritised recommendations.
+    Returns ``(advisor_reviews, timing, token_usage)``. Each review is
+    either "PROCEED" or a list of prioritised recommendations.
     """
     skills = discover_advisor_skills(skills_dir)
     if not skills:
@@ -639,7 +656,7 @@ async def review_plan(
     plan_summary = _format_plan_for_review(plan_data)
     total = len(skills)
 
-    async def _review_one(skill: AdvisorSkill) -> tuple[str, str]:
+    async def _review_one(skill: AdvisorSkill) -> tuple[str, str, TokenUsage]:
         prompt = _plan_review_prompt(skill, plan_summary)
         temp = _advisor_temperature(
             skill.temperature_rank,
@@ -647,22 +664,27 @@ async def review_plan(
             temperature_spread,
         )
         seed = _advisor_seed(skill.seed_offset, plan_id)
-        response = await llm.complete(
+        result = await llm.complete_with_usage(
             prompt,
             temperature=temp,
             seed=seed,
             model=skill.model or None,
         )
-        return skill.display_name, response
+        return skill.display_name, result.text, result.usage
 
     t0 = time.monotonic()
     results = await asyncio.gather(*[_review_one(s) for s in skills])
     duration = time.monotonic() - t0
 
-    advisor_reviews: dict[str, str] = dict(results)
+    advisor_reviews: dict[str, str] = {}
+    stage_usage = TokenUsage()
+    for name, text, usage in results:
+        advisor_reviews[name] = text
+        stage_usage += usage
+
     timing = {"start": t0, "duration": round(duration, 3)}
 
-    return advisor_reviews, timing
+    return advisor_reviews, timing, stage_usage
 
 
 # ---------------------------------------------------------------------------
@@ -699,18 +721,21 @@ async def decide_changes(
     plan_data: dict[str, Any],
     advisor_reviews: dict[str, str],
     llm: LLMClient,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], TokenUsage]:
     """Business+Architect decision gate on advisor recommendations.
 
-    Returns a decision dict with verdict, rationale, and per-recommendation
-    decisions (ACCEPT/DEFER/DROP).
+    Returns ``(decision, token_usage)``. The decision dict contains
+    verdict, rationale, and per-recommendation decisions.
     """
     import json as _json
 
     gate_model = get_skill_model("decision_gate") or None
+    stage_usage = TokenUsage()
 
     prompt = _decision_gate_prompt(plan_data, advisor_reviews)
-    raw_response = await llm.complete(prompt, temperature=0.7, model=gate_model)
+    result = await llm.complete_with_usage(prompt, temperature=0.7, model=gate_model)
+    raw_response = result.text
+    stage_usage += result.usage
 
     # Extract JSON from response
     json_text = raw_response.strip()
@@ -732,7 +757,9 @@ async def decide_changes(
             "Fix it and return ONLY the corrected JSON:\n\n"
             f"{raw_response}"
         )
-        raw_response = await llm.complete(repair_prompt, model=gate_model)
+        retry_result = await llm.complete_with_usage(repair_prompt, model=gate_model)
+        raw_response = retry_result.text
+        stage_usage += retry_result.usage
         json_text = raw_response.strip()
         if "```json" in json_text:
             start = json_text.index("```json") + 7
@@ -744,4 +771,4 @@ async def decide_changes(
             json_text = json_text[start:end].strip()
         decision = _json.loads(json_text)
 
-    return decision
+    return decision, stage_usage

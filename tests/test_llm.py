@@ -13,7 +13,7 @@ Python lesson: testing your test infrastructure
 
 import pytest
 
-from code_council.llm import LLMResult, TokenUsage
+from code_council.llm import LLMResult, TokenTracker, TokenUsage
 from tests.conftest import FakeLLM
 
 
@@ -27,6 +27,115 @@ class TestTokenUsage:
     def test_custom_values(self) -> None:
         usage = TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
         assert usage.total_tokens == 150
+
+    def test_add(self) -> None:
+        a = TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        b = TokenUsage(prompt_tokens=200, completion_tokens=80, total_tokens=280)
+        c = a + b
+        assert c.prompt_tokens == 300
+        assert c.completion_tokens == 130
+        assert c.total_tokens == 430
+        # Originals unchanged
+        assert a.prompt_tokens == 100
+        assert b.prompt_tokens == 200
+
+    def test_iadd(self) -> None:
+        a = TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        b = TokenUsage(prompt_tokens=200, completion_tokens=80, total_tokens=280)
+        a += b
+        assert a.prompt_tokens == 300
+        assert a.completion_tokens == 130
+        assert a.total_tokens == 430
+
+    def test_to_dict(self) -> None:
+        usage = TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        d = usage.to_dict()
+        assert d == {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+        }
+
+
+class TestTokenTracker:
+    def test_record_single_stage(self) -> None:
+        tracker = TokenTracker()
+        tracker.record(
+            "framing", TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        )
+        assert tracker.total.total_tokens == 150
+        assert "framing" in tracker.stage_usage
+        assert tracker.stage_usage["framing"].total_tokens == 150
+
+    def test_record_multiple_stages(self) -> None:
+        tracker = TokenTracker()
+        tracker.record(
+            "framing", TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        )
+        tracker.record(
+            "advisors", TokenUsage(prompt_tokens=600, completion_tokens=300, total_tokens=900)
+        )
+        assert tracker.total.total_tokens == 1050
+        assert tracker.total.prompt_tokens == 700
+        assert tracker.total.completion_tokens == 350
+
+    def test_record_same_stage_accumulates(self) -> None:
+        tracker = TokenTracker()
+        tracker.record(
+            "advisors", TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        )
+        tracker.record(
+            "advisors", TokenUsage(prompt_tokens=200, completion_tokens=80, total_tokens=280)
+        )
+        assert tracker.stage_usage["advisors"].total_tokens == 430
+        assert tracker.total.total_tokens == 430
+
+    def test_to_dict(self) -> None:
+        tracker = TokenTracker()
+        tracker.record(
+            "framing", TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        )
+        d = tracker.to_dict()
+        assert "stages" in d
+        assert "total" in d
+        assert d["stages"]["framing"] == {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+        }
+        assert d["total"]["total_tokens"] == 150
+
+    def test_format_stage_line(self) -> None:
+        tracker = TokenTracker()
+        tracker.record(
+            "framing", TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        )
+        line = tracker.format_stage_line("framing")
+        assert "Framing" in line
+        assert "150" in line
+        assert "100" in line
+        assert "50" in line
+
+    def test_format_stage_line_missing_stage(self) -> None:
+        tracker = TokenTracker()
+        line = tracker.format_stage_line("nonexistent")
+        assert "Nonexistent" in line
+        assert "0" in line
+
+    def test_format_summary(self) -> None:
+        tracker = TokenTracker()
+        tracker.record(
+            "framing", TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+        )
+        tracker.record(
+            "advisors", TokenUsage(prompt_tokens=600, completion_tokens=300, total_tokens=900)
+        )
+        summary = tracker.format_summary()
+        assert "TOKEN USAGE" in summary
+        assert "Framing" in summary
+        assert "Advisors" in summary
+        assert "Total" in summary
+        assert "1,050" in summary
 
 
 class TestLLMResult:

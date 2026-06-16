@@ -243,8 +243,11 @@ def _parse_framer_json(raw: str) -> dict | None:
         return None
 
 
-async def _force_frame(llm, messages: list[dict[str, str]]) -> dict | None:
-    """Force the LLM to produce a framed requirement."""
+async def _force_frame(llm, messages: list[dict[str, str]]) -> tuple[dict | None, dict]:
+    """Force the LLM to produce a framed requirement.
+
+    Returns ``(parsed_json, token_usage_dict)``.
+    """
     from code_council.config import get_skill_model
 
     framer_model = get_skill_model("framer") or None
@@ -258,8 +261,8 @@ async def _force_frame(llm, messages: list[dict[str, str]]) -> dict | None:
             ),
         }
     )
-    raw = await llm.chat(messages, model=framer_model)
-    return _parse_framer_json(raw)
+    result = await llm.chat_with_usage(messages, model=framer_model)
+    return _parse_framer_json(result.text), result.usage.to_dict()
 
 
 @app.websocket("/ws/framer")
@@ -291,7 +294,7 @@ async def ws_framer(ws: WebSocket) -> None:
 
     try:
         from code_council.config import get_settings, get_skill_model
-        from code_council.llm import get_llm
+        from code_council.llm import TokenUsage, get_llm
 
         settings = get_settings()
         settings.require_llm_credentials()
@@ -304,6 +307,7 @@ async def ws_framer(ws: WebSocket) -> None:
     request_id: str | None = None
     plan_id: str | None = None
     _msg_seq = 0
+    _framing_usage = TokenUsage()
 
     # Helper: persist framer question to transcript
     def _save_framer_msg(question: str, msg_id: str, choices: list[str] | None = None):
@@ -415,7 +419,9 @@ async def ws_framer(ws: WebSocket) -> None:
         # Interview loop
         framer_model = get_skill_model("framer") or None
         for round_num in range(_MAX_FRAMER_ROUNDS):
-            raw = await llm.chat(messages, model=framer_model)
+            chat_result = await llm.chat_with_usage(messages, model=framer_model)
+            raw = chat_result.text
+            _framing_usage += chat_result.usage
             messages.append({"role": "assistant", "content": raw})
 
             parsed = _parse_framer_json(raw)
@@ -431,6 +437,7 @@ async def ws_framer(ws: WebSocket) -> None:
                         "choices": [],
                         "msg_id": str(_msg_seq),
                         "plan_id": plan_id,
+                        "token_usage": _framing_usage.to_dict(),
                     }
                 )
             elif parsed.get("type") == "framed":
@@ -443,6 +450,7 @@ async def ws_framer(ws: WebSocket) -> None:
                         "framed_requirement": framed_req,
                         "request_id": request_id,
                         "plan_id": plan_id,
+                        "token_usage": _framing_usage.to_dict(),
                     }
                 )
                 await ws.close()
@@ -459,6 +467,7 @@ async def ws_framer(ws: WebSocket) -> None:
                         "choices": q_choices,
                         "msg_id": str(_msg_seq),
                         "plan_id": plan_id,
+                        "token_usage": _framing_usage.to_dict(),
                     }
                 )
             else:
@@ -471,6 +480,7 @@ async def ws_framer(ws: WebSocket) -> None:
                             "framed_requirement": parsed,
                             "request_id": request_id,
                             "plan_id": plan_id,
+                            "token_usage": _framing_usage.to_dict(),
                         }
                     )
                     await ws.close()
@@ -485,6 +495,7 @@ async def ws_framer(ws: WebSocket) -> None:
                         "choices": [],
                         "msg_id": str(_msg_seq),
                         "plan_id": plan_id,
+                        "token_usage": _framing_usage.to_dict(),
                     }
                 )
 
@@ -498,7 +509,8 @@ async def ws_framer(ws: WebSocket) -> None:
 
                 if reply_data.get("type") == "skip":
                     # Force-frame with what we have
-                    result = await _force_frame(llm, messages)
+                    result, force_usage = await _force_frame(llm, messages)
+                    _framing_usage += TokenUsage(**force_usage)
                     if result and result.get("type") == "framed":
                         framed_req = result.get("framed_requirement", result)
                     elif result and "title" in result:
@@ -522,6 +534,7 @@ async def ws_framer(ws: WebSocket) -> None:
                             "framed_requirement": framed_req,
                             "request_id": request_id,
                             "plan_id": plan_id,
+                            "token_usage": _framing_usage.to_dict(),
                         }
                     )
                     await ws.close()
@@ -538,7 +551,8 @@ async def ws_framer(ws: WebSocket) -> None:
                     break
 
         # Max rounds reached -- force frame
-        result = await _force_frame(llm, messages)
+        result, force_usage = await _force_frame(llm, messages)
+        _framing_usage += TokenUsage(**force_usage)
         if result:
             framed_req = result.get("framed_requirement", result)
         else:
@@ -559,6 +573,7 @@ async def ws_framer(ws: WebSocket) -> None:
                 "framed_requirement": framed_req,
                 "request_id": request_id,
                 "plan_id": plan_id,
+                "token_usage": _framing_usage.to_dict(),
             }
         )
         await ws.close()
@@ -612,10 +627,12 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
         from code_council.advisors import discover_advisor_skills, run_advisors
         from code_council.context import ProjectContext
         from code_council.framer import FramedRequirement
+        from code_council.llm import TokenTracker
         from code_council.synthesizer import analyze_conflicts, synthesize_plan
 
         plan_id = req.plan_id
         change_description = req.change_description
+        tracker = TokenTracker()
 
         # Reconstruct the framed requirement
         try:
@@ -641,20 +658,10 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
         advisor_names = [s.display_name for s in skills]
         yield _sse_event("advisors", "started", {"advisor_names": advisor_names})
 
-        # Run all advisors in parallel, but emit events as each completes
-        # We use individual tasks instead of gather so we can stream results
-        advisor_responses: dict[str, str] = {}
-
-        async def _run_one(skill_name: str) -> tuple[str, str]:
-            """Run advisors via the existing parallel function."""
-            # We re-use run_advisors which does gather internally
-            # But we need individual results, so we run tasks individually
-            pass
-
         # Actually run them all in parallel via run_advisors
         t0 = time.monotonic()
         try:
-            responses, params, timing = await run_advisors(
+            responses, params, timing, advisor_usage = await run_advisors(
                 change_description=change_description,
                 context=ctx,
                 llm=llm,
@@ -662,6 +669,7 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
                 temperature_spread=settings.code_council_advisor_temperature_spread,
             )
             advisor_responses = responses
+            tracker.record("advisors", advisor_usage)
         except Exception as exc:
             yield _sse_event("session", "error", {"message": f"Advisor error: {exc}"})
             return
@@ -679,27 +687,48 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
 
         advisor_duration = round(time.monotonic() - t0, 3)
 
+        # Emit advisor stage token usage
+        yield _sse_event(
+            "token_usage",
+            "update",
+            {
+                "stage": "advisors",
+                "usage": tracker.stage_usage["advisors"].to_dict(),
+                "total": tracker.total.to_dict(),
+            },
+        )
+
         # Analysis phase (Pass 1: conflict resolution)
         yield _sse_event("analysis", "started", {})
 
         try:
-            conflict_analysis = await analyze_conflicts(
+            conflict_analysis, analysis_usage = await analyze_conflicts(
                 change_description=change_description,
                 advisor_responses=advisor_responses,
                 context=ctx,
                 llm=llm,
             )
+            tracker.record("analysis", analysis_usage)
         except Exception as exc:
             yield _sse_event("session", "error", {"message": f"Analysis error: {exc}"})
             return
 
         yield _sse_event("analysis", "completed", {})
+        yield _sse_event(
+            "token_usage",
+            "update",
+            {
+                "stage": "analysis",
+                "usage": tracker.stage_usage["analysis"].to_dict(),
+                "total": tracker.total.to_dict(),
+            },
+        )
 
         # Synthesis phase (Pass 2: structured plan generation)
         yield _sse_event("synthesis", "started", {})
 
         try:
-            plan = await synthesize_plan(
+            plan, synth_usage = await synthesize_plan(
                 change_description=change_description,
                 advisor_responses=advisor_responses,
                 context=ctx,
@@ -707,6 +736,7 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
                 llm=llm,
                 conflict_analysis=conflict_analysis,
             )
+            tracker.record("synthesis", synth_usage)
         except Exception as exc:
             yield _sse_event("session", "error", {"message": f"Synthesis error: {exc}"})
             return
@@ -716,6 +746,15 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
             "completed",
             {
                 "plan": plan.model_dump(),
+            },
+        )
+        yield _sse_event(
+            "token_usage",
+            "update",
+            {
+                "stage": "synthesis",
+                "usage": tracker.stage_usage["synthesis"].to_dict(),
+                "total": tracker.total.to_dict(),
             },
         )
 
@@ -732,6 +771,7 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
                 context_summary=ctx.summary or "",
                 framed_requirement=framed.model_dump(),
                 base_plan_id=req.base_plan_id,
+                token_usage=tracker.to_dict(),
                 settings=settings,
             )
         except Exception as exc:
@@ -745,6 +785,7 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
                 "plan_id": plan_id,
                 "duration": total_duration,
                 "advisor_duration": advisor_duration,
+                "token_usage": tracker.to_dict(),
             },
         )
 
@@ -879,10 +920,12 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
     async def _generate():
         from code_council.advisors import discover_advisor_skills, run_advisors
         from code_council.context import ProjectContext
+        from code_council.llm import TokenTracker
         from code_council.synthesizer import analyze_conflicts, synthesize_plan
 
         plan_id = req.plan_id
         change_description = req.change_description
+        tracker = TokenTracker()
 
         if req.action == "approve":
             yield _sse_event("review", "approved", {"plan_id": plan_id})
@@ -941,7 +984,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
         # Re-run advisors with negotiation feedback
         t0 = time.monotonic()
         try:
-            responses, params, timing = await run_advisors(
+            responses, params, timing, advisor_usage = await run_advisors(
                 change_description=change_description,
                 context=ctx,
                 llm=llm,
@@ -949,6 +992,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 temperature_spread=settings.code_council_advisor_temperature_spread,
                 negotiation_feedback=req.feedback,
             )
+            tracker.record("advisors", advisor_usage)
         except Exception as exc:
             yield _sse_event(
                 "session",
@@ -969,16 +1013,27 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 },
             )
 
+        yield _sse_event(
+            "token_usage",
+            "update",
+            {
+                "stage": "advisors",
+                "usage": tracker.stage_usage["advisors"].to_dict(),
+                "total": tracker.total.to_dict(),
+            },
+        )
+
         # Analysis phase (Pass 1: conflict resolution)
         yield _sse_event("analysis", "started", {})
 
         try:
-            conflict_analysis = await analyze_conflicts(
+            conflict_analysis, analysis_usage = await analyze_conflicts(
                 change_description=change_description,
                 advisor_responses=responses,
                 context=ctx,
                 llm=llm,
             )
+            tracker.record("analysis", analysis_usage)
         except Exception as exc:
             yield _sse_event(
                 "session",
@@ -990,12 +1045,21 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
             return
 
         yield _sse_event("analysis", "completed", {})
+        yield _sse_event(
+            "token_usage",
+            "update",
+            {
+                "stage": "analysis",
+                "usage": tracker.stage_usage["analysis"].to_dict(),
+                "total": tracker.total.to_dict(),
+            },
+        )
 
         # Re-synthesize (Pass 2: structured plan generation)
         yield _sse_event("synthesis", "started", {})
 
         try:
-            plan = await synthesize_plan(
+            plan, synth_usage = await synthesize_plan(
                 change_description=change_description,
                 advisor_responses=responses,
                 context=ctx,
@@ -1003,6 +1067,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 llm=llm,
                 conflict_analysis=conflict_analysis,
             )
+            tracker.record("synthesis", synth_usage)
         except Exception as exc:
             yield _sse_event(
                 "session",
@@ -1018,6 +1083,15 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
             "completed",
             {
                 "plan": plan.model_dump(),
+            },
+        )
+        yield _sse_event(
+            "token_usage",
+            "update",
+            {
+                "stage": "synthesis",
+                "usage": tracker.stage_usage["synthesis"].to_dict(),
+                "total": tracker.total.to_dict(),
             },
         )
 
@@ -1036,6 +1110,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 context_summary=ctx.summary or "",
                 framed_requirement=framed.model_dump(),
                 base_plan_id=req.base_plan_id,
+                token_usage=tracker.to_dict(),
                 settings=settings,
             )
         except Exception as exc:
@@ -1048,6 +1123,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
             {
                 "plan_id": plan_id,
                 "duration": total_duration,
+                "token_usage": tracker.to_dict(),
             },
         )
 
@@ -1094,20 +1170,23 @@ async def council_feedback(req: CouncilFeedbackRequest) -> StreamingResponse:
 
     async def _generate():
         from code_council.advisors import decide_changes, review_plan
+        from code_council.llm import TokenTracker
 
         plan_id = req.plan_id
         plan_data = req.plan_data
+        tracker = TokenTracker()
 
         yield _sse_event("feedback", "started", {"plan_id": plan_id})
 
         # Phase 1: Each advisor reviews the plan in parallel
         try:
-            advisor_reviews, timing = await review_plan(
+            advisor_reviews, timing, review_usage = await review_plan(
                 plan_data=plan_data,
                 llm=llm,
                 plan_id=plan_id,
                 temperature_spread=settings.code_council_advisor_temperature_spread,
             )
+            tracker.record("review", review_usage)
         except Exception as exc:
             yield _sse_event(
                 "feedback",
@@ -1129,15 +1208,26 @@ async def council_feedback(req: CouncilFeedbackRequest) -> StreamingResponse:
                 },
             )
 
+        yield _sse_event(
+            "token_usage",
+            "update",
+            {
+                "stage": "review",
+                "usage": tracker.stage_usage["review"].to_dict(),
+                "total": tracker.total.to_dict(),
+            },
+        )
+
         # Phase 2: Business + Architect decision gate
         yield _sse_event("feedback", "deciding", {})
 
         try:
-            decision = await decide_changes(
+            decision, gate_usage = await decide_changes(
                 plan_data=plan_data,
                 advisor_reviews=advisor_reviews,
                 llm=llm,
             )
+            tracker.record("decision_gate", gate_usage)
         except Exception as exc:
             yield _sse_event(
                 "feedback",
@@ -1154,6 +1244,7 @@ async def council_feedback(req: CouncilFeedbackRequest) -> StreamingResponse:
             {
                 "decision": decision,
                 "advisor_reviews": advisor_reviews,
+                "token_usage": tracker.to_dict(),
             },
         )
 
@@ -1213,10 +1304,12 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
         from code_council.advisors import discover_advisor_skills, run_advisors
         from code_council.context import ProjectContext
         from code_council.framer import FramedRequirement
+        from code_council.llm import TokenTracker
         from code_council.synthesizer import analyze_conflicts, synthesize_plan
 
         plan_id = req.plan_id
         change_description = req.change_description
+        tracker = TokenTracker()
 
         # Parse framed requirement
         try:
@@ -1263,7 +1356,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
         # Re-run advisors with council feedback
         t0 = time.monotonic()
         try:
-            responses, params, timing = await run_advisors(
+            responses, params, timing, advisor_usage = await run_advisors(
                 change_description=change_description,
                 context=ctx,
                 llm=llm,
@@ -1271,6 +1364,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 temperature_spread=settings.code_council_advisor_temperature_spread,
                 negotiation_feedback=negotiation_feedback,
             )
+            tracker.record("advisors", advisor_usage)
         except Exception as exc:
             yield _sse_event(
                 "session",
@@ -1291,16 +1385,27 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 },
             )
 
+        yield _sse_event(
+            "token_usage",
+            "update",
+            {
+                "stage": "advisors",
+                "usage": tracker.stage_usage["advisors"].to_dict(),
+                "total": tracker.total.to_dict(),
+            },
+        )
+
         # Analysis phase (Pass 1: conflict resolution)
         yield _sse_event("analysis", "started", {})
 
         try:
-            conflict_analysis = await analyze_conflicts(
+            conflict_analysis, analysis_usage = await analyze_conflicts(
                 change_description=change_description,
                 advisor_responses=responses,
                 context=ctx,
                 llm=llm,
             )
+            tracker.record("analysis", analysis_usage)
         except Exception as exc:
             yield _sse_event(
                 "session",
@@ -1312,12 +1417,21 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
             return
 
         yield _sse_event("analysis", "completed", {})
+        yield _sse_event(
+            "token_usage",
+            "update",
+            {
+                "stage": "analysis",
+                "usage": tracker.stage_usage["analysis"].to_dict(),
+                "total": tracker.total.to_dict(),
+            },
+        )
 
         # Re-synthesize (Pass 2: structured plan generation)
         yield _sse_event("synthesis", "started", {})
 
         try:
-            plan = await synthesize_plan(
+            plan, synth_usage = await synthesize_plan(
                 change_description=change_description,
                 advisor_responses=responses,
                 context=ctx,
@@ -1325,6 +1439,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 llm=llm,
                 conflict_analysis=conflict_analysis,
             )
+            tracker.record("synthesis", synth_usage)
         except Exception as exc:
             yield _sse_event(
                 "session",
@@ -1342,6 +1457,15 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 "plan": plan.model_dump(),
             },
         )
+        yield _sse_event(
+            "token_usage",
+            "update",
+            {
+                "stage": "synthesis",
+                "usage": tracker.stage_usage["synthesis"].to_dict(),
+                "total": tracker.total.to_dict(),
+            },
+        )
 
         # Save with council_reviewed status
         try:
@@ -1356,6 +1480,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 context_summary=ctx.summary or "",
                 framed_requirement=framed.model_dump(),
                 base_plan_id=req.base_plan_id,
+                token_usage=tracker.to_dict(),
                 settings=settings,
             )
         except Exception as exc:
@@ -1368,6 +1493,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
             {
                 "plan_id": plan_id,
                 "duration": total_duration,
+                "token_usage": tracker.to_dict(),
             },
         )
 

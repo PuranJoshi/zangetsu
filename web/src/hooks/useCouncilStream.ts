@@ -5,6 +5,8 @@ import type {
   CouncilSession,
   FramedRequirement,
   ProjectContext,
+  StageTokenUsage,
+  TokenUsageData,
 } from "../types"
 import { initialSession } from "../types"
 
@@ -297,11 +299,45 @@ export function useCouncilStream(): UseCouncilStreamResult {
       return
     }
 
+    if (stage === "token_usage" && status === "update") {
+      const stageName = data?.stage as string
+      const usage = data?.usage as TokenUsageData
+      const total = data?.total as TokenUsageData
+      if (stageName && usage && total) {
+        setSession((prev) => {
+          const prevStages = prev.tokenUsage?.stages || []
+          const existingIdx = prevStages.findIndex((s) => s.stage === stageName)
+          const stageEntry: StageTokenUsage = { stage: stageName, usage }
+          const newStages =
+            existingIdx >= 0
+              ? prevStages.map((s, i) => (i === existingIdx ? stageEntry : s))
+              : [...prevStages, stageEntry]
+          return {
+            ...prev,
+            tokenUsage: { stages: newStages, total },
+          }
+        })
+      }
+      return
+    }
+
     if (stage === "session" && status === "completed") {
+      // Extract cumulative token_usage from completed event if present
+      const tokenUsageData = data?.token_usage as
+        | { stages: Record<string, TokenUsageData>; total: TokenUsageData }
+        | undefined
+      let finalTokenUsage = undefined
+      if (tokenUsageData) {
+        const stages: StageTokenUsage[] = Object.entries(
+          tokenUsageData.stages
+        ).map(([name, usage]) => ({ stage: name, usage }))
+        finalTokenUsage = { stages, total: tokenUsageData.total }
+      }
       setSession((prev) => ({
         ...prev,
         stage: "completed",
         duration: (data?.duration as number) || null,
+        ...(finalTokenUsage ? { tokenUsage: finalTokenUsage } : {}),
       }))
       return
     }
@@ -341,6 +377,7 @@ export function useCouncilStream(): UseCouncilStreamResult {
       plan,
       duration: null,
       error: null,
+      tokenUsage: null,
     })
     setIsRunning(false)
   }, [])
