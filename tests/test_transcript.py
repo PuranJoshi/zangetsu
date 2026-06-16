@@ -15,6 +15,7 @@ from pathlib import Path
 from code_council.transcript import (
     append_framer_message,
     init_transcript,
+    list_recent_transcripts,
     load_transcript,
     set_framed_question,
     update_token_usage,
@@ -375,3 +376,66 @@ class TestUpdateTokenUsage:
         assert len(data["framer_messages"]) == 1
         assert data["framed_question"] == "framed text"
         assert data["token_usage"]["total"]["total_tokens"] == 42
+
+
+class TestListRecentTranscripts:
+    def test_lists_transcripts(self, tmp_path: Path) -> None:
+        for i in range(3):
+            (tmp_path / f"transcript-{i}.json").write_text(
+                json.dumps(
+                    {
+                        "plan_id": str(i),
+                        "timestamp": f"2025-01-0{i + 1}T00:00:00+00:00",
+                        "question": f"Question {i}",
+                        "status": "active",
+                        "framed_question": None,
+                        "framer_messages": [],
+                    }
+                )
+            )
+        results = list_recent_transcripts(limit=10, transcript_dir=tmp_path)
+        assert len(results) == 3
+
+    def test_empty_directory(self, tmp_path: Path) -> None:
+        assert list_recent_transcripts(transcript_dir=tmp_path) == []
+
+    def test_respects_limit(self, tmp_path: Path) -> None:
+        for i in range(5):
+            (tmp_path / f"transcript-{i}.json").write_text(
+                json.dumps(
+                    {
+                        "plan_id": str(i),
+                        "timestamp": f"2025-01-0{i + 1}T00:00:00+00:00",
+                        "question": f"Question {i}",
+                        "status": "active",
+                        "framed_question": None,
+                        "framer_messages": [],
+                    }
+                )
+            )
+        results = list_recent_transcripts(limit=2, transcript_dir=tmp_path)
+        assert len(results) == 2
+
+    def test_ordered_by_timestamp_descending(self, tmp_path: Path) -> None:
+        """Transcripts should be returned newest-first based on their JSON timestamp."""
+        transcripts = [
+            ("transcript-a.json", "2025-06-01T10:00:00+00:00", "Oldest"),
+            ("transcript-b.json", "2025-06-03T10:00:00+00:00", "Newest"),
+            ("transcript-c.json", "2025-06-02T10:00:00+00:00", "Middle"),
+        ]
+        for filename, ts, question in transcripts:
+            (tmp_path / filename).write_text(
+                json.dumps(
+                    {
+                        "plan_id": filename.replace("transcript-", "").replace(".json", ""),
+                        "timestamp": ts,
+                        "question": question,
+                        "status": "active",
+                        "framed_question": None,
+                        "framer_messages": [],
+                    }
+                )
+            )
+        results = list_recent_transcripts(limit=10, transcript_dir=tmp_path)
+        questions = [r["question"] for r in results]
+        assert questions == ["Newest", "Middle", "Oldest"]

@@ -134,8 +134,11 @@ function PlanList({ onSelectPlan }: { onSelectPlan: (id: string) => void }) {
     }
   }, [])
 
+  // Fetch on mount and poll every 5s for new plans
   useEffect(() => {
     void fetchPlans()
+    const interval = setInterval(() => void fetchPlans(), 5_000)
+    return () => clearInterval(interval)
   }, [fetchPlans])
 
   if (loading) {

@@ -77,9 +77,11 @@ export function PlanSidebar({ activePlanId, onSelectPlan, refreshKey }: Props) {
     }
   }, [])
 
-  // Fetch on mount and whenever refreshKey changes
+  // Fetch on mount, whenever refreshKey changes, and poll every 5s
   useEffect(() => {
     void fetchPlans()
+    const interval = setInterval(() => void fetchPlans(), 5_000)
+    return () => clearInterval(interval)
   }, [fetchPlans, refreshKey])
 
   return (
