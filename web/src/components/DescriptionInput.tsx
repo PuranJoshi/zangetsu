@@ -231,10 +231,12 @@ export function DescriptionInput({ onSubmit, onLoadTranscript }: Props) {
     }
   }, [])
 
-  // Always fetch on mount
+  // Fetch on mount and poll every 5s for new transcripts
   useEffect(() => {
     if (onLoadTranscript) {
       void fetchTranscripts()
+      const interval = setInterval(() => void fetchTranscripts(), 5_000)
+      return () => clearInterval(interval)
     }
   }, [onLoadTranscript, fetchTranscripts])
 
