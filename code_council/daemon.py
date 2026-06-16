@@ -409,10 +409,25 @@ async def ws_framer(ws: WebSocket) -> None:
         except Exception as exc:
             logger.warning("Failed to init transcript: %s", exc)
 
-        # Build LLM conversation
-        system_prompt = _WEB_FRAMER_SYSTEM.format(max_rounds=_MAX_FRAMER_ROUNDS)
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": system_prompt},
+        # Build LLM conversation with cache-aware system message.
+        # For Anthropic, we add cache_control breakpoints to the system
+        # message so the framer instructions are cached across rounds.
+        system_text = _WEB_FRAMER_SYSTEM.format(max_rounds=_MAX_FRAMER_ROUNDS)
+        if settings.code_council_prompt_caching and settings.is_anthropic_provider():
+            system_msg: dict = {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": system_text,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+            }
+        else:
+            system_msg = {"role": "system", "content": system_text}
+        messages: list[dict] = [
+            system_msg,
             {"role": "user", "content": user_question},
         ]
 

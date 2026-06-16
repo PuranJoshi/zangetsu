@@ -308,26 +308,37 @@ plus a final summary table before saving. Passes `tracker.to_dict()` to
 - `_format_framed_requirement()` -- formats FramedRequirement for user review
 - `_format_plan()` -- formats ChangePlan as terminal-friendly text
 
-### `config.py` (~185 lines)
+### `config.py` (~210 lines)
 Configuration via `pydantic-settings.BaseSettings`. Reads from environment
 variables and optionally from `~/.code-council/env` (KEY=VALUE format).
 Environment variables are loaded at module import time so they are available
 when `Settings()` is constructed. Factory function `get_settings()` creates
 fresh instances for test isolation. Includes `plan_path` and `transcript_path`
 properties for deriving storage directories from string settings.
+Prompt caching settings (`code_council_prompt_caching`,
+`code_council_provider_type`) and `is_anthropic_provider()` helper for
+provider detection.
 
-### `llm.py` (~380 lines)
+### `llm.py` (~460 lines)
 LLM client wrapper using the OpenAI Python SDK pointed at any OpenAI-compatible endpoint.
 - `TokenUsage` dataclass with `__add__`, `__iadd__`, `to_dict()` for easy
-  accumulation across multiple LLM calls
+  accumulation across multiple LLM calls. Includes `cache_creation_tokens`
+  and `cache_read_tokens` fields for tracking provider-side prompt caching.
 - `LLMResult` dataclass (text + `TokenUsage`)
 - `TokenTracker` class -- per-stage token accumulator with `record()`,
   `to_dict()`, `format_stage_line()`, `format_summary()`. Used by
   `cli.py` and `daemon.py` to track and display per-stage + total usage.
+  Summary output includes cached token counts when present.
 - `LLMClient` Protocol for structural typing (includes `complete`,
   `chat`, `complete_with_usage`, `chat_with_usage`)
 - `OpenAICompatibleLLM` implementation with retry (exponential backoff, max 3 retries)
   and `asyncio.wait_for()` timeout
+- **Prompt caching**: `complete()` and `complete_with_usage()` accept an optional
+  `system_prompt` parameter. When provided and caching is enabled, shared content
+  (project context, skill text) is sent as a system message so LLM providers can
+  cache and reuse it. For Anthropic, explicit `cache_control` breakpoints are
+  added via `_build_system_message()`. For OpenAI, automatic prefix caching
+  kicks in for shared prefixes >= 1024 tokens.
 - Per-call model override: all methods accept an optional `model` parameter. If
   provided (non-empty), the call uses that model instead of the global default.
   This enables per-skill model routing across the entire pipeline.
@@ -363,16 +374,21 @@ of questions locally (no LLM call between questions), then makes one LLM call
 with all answers to re-evaluate. Hard cap of `MAX_CLARIFICATION_BATCHES` (3)
 prevents infinite loops.
 
-### `advisors.py` (~760 lines)
+### `advisors.py` (~830 lines)
 Advisor skill registry, parallel execution engine, and council review.
 All functions use `complete_with_usage()` and return `TokenUsage` for tracking.
-- Auto-discovers advisor skills from `skills/*.md` files
+- Auto-discovers advisor skills from `skills/*.md` files (cached via
+  `@functools.lru_cache` after first load)
 - Parses YAML frontmatter for config (temperature_rank, seed_offset, model override)
 - **Per-advisor model routing**: each advisor can use a different LLM model.
   Model resolution order (highest priority first):
   1. Environment variable `CODE_COUNCIL_MODEL_<SKILL_NAME>`
   2. YAML frontmatter `model:` field in the skill `.md` file
   3. Global `CODE_COUNCIL_MODEL` default (used when model is empty)
+- **Prompt caching**: shared project context is extracted into a separate
+  `system_prompt` via `_advisor_system_prompt()`. All 6 advisors receive the
+  same system message, enabling provider-side cache hits on calls 2-6. Plan
+  review and decision gate prompts are similarly split.
 - Assigns evenly spaced temperatures across advisors (default range: 0.6--1.0)
 - Generates deterministic seeds from SHA-256(plan_id) + offset
 - `run_advisors()` -- runs all advisors in parallel via `asyncio.gather()`.
@@ -488,8 +504,13 @@ frontmatter. No code changes needed.
 prompt_tokens: int                 # tokens sent to the LLM
 completion_tokens: int             # tokens received from the LLM
 total_tokens: int                  # prompt + completion
+cache_creation_tokens: int         # tokens written to provider cache (Anthropic)
+cache_read_tokens: int             # tokens served from cache (Anthropic/OpenAI)
 ```
 Supports `+` / `+=` for accumulation and `to_dict()` for serialization.
+Cache fields are populated from the provider's response when prompt caching
+is active (Anthropic: `cache_creation_input_tokens` / `cache_read_input_tokens`;
+OpenAI: via `getattr` fallback for forward-compatibility).
 
 ### `TokenTracker` (llm.py)
 ```
@@ -632,6 +653,8 @@ error_message: str
 | `CODE_COUNCIL_SAVE_PLANS` | No | `True` | Whether to persist plans to disk |
 | `CODE_COUNCIL_PLAN_DIR` | No | `~/.code-council/plans` | Plan storage directory |
 | `CODE_COUNCIL_TRANSCRIPT_DIR` | No | `~/.code-council/transcripts` | Transcript storage directory |
+| `CODE_COUNCIL_PROMPT_CACHING` | No | `True` | Enable LLM prompt caching (system message split) |
+| `CODE_COUNCIL_PROVIDER_TYPE` | No | `auto` | Provider type for cache strategy: `auto`, `anthropic`, `openai`, `none` |
 
 Variables can be set in the shell or in `~/.code-council/env` (KEY=VALUE format,
 one per line, `#` comments supported).
@@ -702,17 +725,32 @@ one per line, `#` comments supported).
     `TokenUsageSidebar`. Framing tokens are tracked via WebSocket messages.
     All token data is persisted in the saved plan JSON.
 
+11. **LLM prompt caching** -- Shared content (project context, skill text)
+    is split into system messages so LLM providers can cache it across
+    calls. All 6 advisor calls share an identical system message prefix,
+    enabling cache hits on calls 2-6. Anthropic: explicit `cache_control`
+    breakpoints (90% discount). OpenAI: automatic prefix caching for
+    prefixes >= 1024 tokens (50% discount). Controlled by
+    `CODE_COUNCIL_PROMPT_CACHING` (default: `True`) and
+    `CODE_COUNCIL_PROVIDER_TYPE` (default: `auto`).
+
+12. **In-memory skill file caching** -- Skill discovery functions
+    (`discover_advisor_skills`, `discover_synthesizer_skill`, etc.) use
+    `@functools.lru_cache` to avoid redundant filesystem reads and YAML
+    parsing during a pipeline run. Skill files are read once on first call
+    and cached for the process lifetime.
+
 ---
 
 ## Test Suite
 
 17 test files (+ `conftest.py` with shared fixtures) using `FakeLLM` (no real
-API calls, 263 tests total). Run with `pytest`.
+API calls, 278 tests total). Run with `pytest`.
 
 | Test File | Coverage |
 |---|---|
-| `test_config.py` | Settings defaults, env overrides, require_llm_credentials, env file loading |
-| `test_llm.py` | TokenUsage (defaults, add, iadd, to_dict), LLMResult, TokenTracker (record, accumulate, to_dict, format), FakeLLM response routing |
+| `test_config.py` | Settings defaults, env overrides, require_llm_credentials, env file loading, prompt caching config (provider detection, auto/anthropic/openai/none) |
+| `test_llm.py` | TokenUsage (defaults, add, iadd, to_dict, cache fields), LLMResult, TokenTracker (record, accumulate, to_dict, format, cache display), FakeLLM response routing + system_prompt support |
 | `test_skill_registry.py` | Frontmatter parsing, skill discovery, temperature/seed math |
 | `test_skill_model_routing.py` | Per-skill model override field, env var overrides, runtime model routing, non-advisor skills, config/skill mismatch edge cases |
 | `test_context_scanning.py` | Directory tree, tech detection, config files, test patterns |

@@ -16,6 +16,7 @@ from code_council.framer import (
     FramedRequirement,
     _extract_json,
     _framer_prompt,
+    _framer_system_prompt,
     _load_framer_skill,
     frame_request,
 )
@@ -88,17 +89,16 @@ class TestExtractJson:
 
 class TestFramerPrompt:
     def test_includes_change_description(self) -> None:
-        prompt = _framer_prompt("add authentication to the API", "")
+        prompt = _framer_prompt("add authentication to the API")
         assert "add authentication to the API" in prompt
 
     def test_includes_context_summary(self) -> None:
-        prompt = _framer_prompt("feature", "Python FastAPI project with JWT")
-        assert "Python FastAPI project" in prompt
+        system = _framer_system_prompt("Python FastAPI project with JWT")
+        assert "Python FastAPI project" in system
 
     def test_includes_previous_clarifications(self) -> None:
         prompt = _framer_prompt(
             "feature",
-            "",
             clarification_answers="OAuth2 with Google provider",
         )
         assert "OAuth2 with Google" in prompt

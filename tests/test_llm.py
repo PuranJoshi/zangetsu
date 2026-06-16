@@ -54,6 +54,8 @@ class TestTokenUsage:
             "prompt_tokens": 100,
             "completion_tokens": 50,
             "total_tokens": 150,
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 0,
         }
 
 
@@ -102,6 +104,8 @@ class TestTokenTracker:
             "prompt_tokens": 100,
             "completion_tokens": 50,
             "total_tokens": 150,
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 0,
         }
         assert d["total"]["total_tokens"] == 150
 
@@ -136,6 +140,54 @@ class TestTokenTracker:
         assert "Advisors" in summary
         assert "Total" in summary
         assert "1,050" in summary
+
+
+class TestTokenUsageCaching:
+    """Tests for cache-related fields on TokenUsage."""
+
+    def test_cache_fields_default_zero(self) -> None:
+        usage = TokenUsage()
+        assert usage.cache_creation_tokens == 0
+        assert usage.cache_read_tokens == 0
+
+    def test_add_preserves_cache_fields(self) -> None:
+        a = TokenUsage(prompt_tokens=100, total_tokens=100, cache_read_tokens=50)
+        b = TokenUsage(prompt_tokens=200, total_tokens=200, cache_creation_tokens=30)
+        c = a + b
+        assert c.cache_read_tokens == 50
+        assert c.cache_creation_tokens == 30
+
+    def test_iadd_accumulates_cache_fields(self) -> None:
+        a = TokenUsage(cache_read_tokens=10, cache_creation_tokens=5)
+        b = TokenUsage(cache_read_tokens=20, cache_creation_tokens=15)
+        a += b
+        assert a.cache_read_tokens == 30
+        assert a.cache_creation_tokens == 20
+
+    def test_to_dict_includes_cache_fields(self) -> None:
+        usage = TokenUsage(
+            prompt_tokens=100,
+            total_tokens=150,
+            cache_read_tokens=80,
+            cache_creation_tokens=20,
+        )
+        d = usage.to_dict()
+        assert d["cache_read_tokens"] == 80
+        assert d["cache_creation_tokens"] == 20
+
+    def test_format_summary_shows_cache_info(self) -> None:
+        tracker = TokenTracker()
+        tracker.record(
+            "advisors",
+            TokenUsage(
+                prompt_tokens=600,
+                completion_tokens=300,
+                total_tokens=900,
+                cache_read_tokens=400,
+            ),
+        )
+        summary = tracker.format_summary()
+        assert "cached: 400" in summary
 
 
 class TestLLMResult:
@@ -213,3 +265,32 @@ class TestFakeLLMTracking:
         result = await llm.complete_with_usage("hello")
         assert result.text == "Generic LLM response."
         assert result.usage.total_tokens == 150
+
+    @pytest.mark.asyncio
+    async def test_records_system_prompt(self) -> None:
+        """FakeLLM should record system_prompt in call_params."""
+        llm = FakeLLM()
+        await llm.complete("user text", system_prompt="system instructions")
+        assert llm.call_params[0]["system_prompt"] == "system instructions"
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_keyword_matching(self) -> None:
+        """FakeLLM should match keywords in system_prompt for routing."""
+        llm = FakeLLM()
+        # Architect Advisor keyword is in system_prompt, not user prompt
+        result = await llm.complete(
+            "Analyze this change.",
+            system_prompt="You are the Architect Advisor on a Code Council.",
+        )
+        assert "Architect Advisor" in result
+
+    @pytest.mark.asyncio
+    async def test_complete_with_usage_passes_system_prompt(self) -> None:
+        """complete_with_usage should forward system_prompt."""
+        llm = FakeLLM()
+        result = await llm.complete_with_usage(
+            "Analyze this change.",
+            system_prompt="You are the Plan Synthesizer for a Code Council.",
+        )
+        assert '"title"' in result.text
+        assert llm.call_params[0]["system_prompt"] is not None

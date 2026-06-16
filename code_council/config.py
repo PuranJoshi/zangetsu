@@ -95,6 +95,26 @@ class Settings(BaseSettings):
         ),
     )
 
+    # -- Prompt caching --
+    code_council_prompt_caching: bool = Field(
+        default=True,
+        description=(
+            "Enable LLM prompt caching. When True, shared content (project "
+            "context, skill text) is sent as system messages so providers "
+            "can cache and reuse them across calls, reducing token costs."
+        ),
+    )
+    code_council_provider_type: str = Field(
+        default="auto",
+        description=(
+            "LLM provider type for cache strategy selection. "
+            "'auto' detects from llm_base_url. "
+            "'anthropic' uses explicit cache_control breakpoints (90% savings). "
+            "'openai' relies on automatic prefix caching (50% savings). "
+            "'none' disables provider-specific caching (still uses system messages)."
+        ),
+    )
+
     # -- Negotiation --
     code_council_max_negotiation_rounds: int = Field(
         default=3,
@@ -136,6 +156,22 @@ class Settings(BaseSettings):
                 f"Missing required environment variable(s): {', '.join(missing)}. "
                 "Set them in your shell or in ~/.code-council/env"
             )
+
+    def is_anthropic_provider(self) -> bool:
+        """Return True if the configured provider is Anthropic.
+
+        Used to decide whether to use explicit ``cache_control``
+        breakpoints (Anthropic) or rely on automatic prefix caching
+        (OpenAI).  The ``code_council_provider_type`` setting takes
+        precedence; ``"auto"`` inspects ``llm_base_url``.
+        """
+        pt = self.code_council_provider_type.lower()
+        if pt == "anthropic":
+            return True
+        if pt in ("openai", "none"):
+            return False
+        # auto-detect from base URL
+        return "anthropic" in self.llm_base_url.lower()
 
     @property
     def plan_path(self) -> Path:

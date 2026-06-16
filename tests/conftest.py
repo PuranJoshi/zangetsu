@@ -66,31 +66,45 @@ class FakeLLM:
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float | None = None,
         seed: int | None = None,
         model: str | None = None,
     ) -> str:
         """Return a canned response based on prompt content.
 
-        The response varies depending on what's in the prompt:
+        The response varies depending on what's in the prompt
+        (or system_prompt):
         - Synthesizer prompts -> valid JSON plan
         - Advisor prompts -> echo back the role name
         - Framer prompts -> valid JSON framed requirement
         - Everything else -> generic response
+
+        When ``system_prompt`` is provided, it is checked alongside
+        the user prompt for keyword matching (mirroring how the real
+        LLM sees both messages).
         """
         self.call_count += 1
         self.prompts.append(prompt)
         self.call_params.append(
             {
                 "prompt_preview": prompt[:80],
+                "system_prompt": system_prompt,
                 "temperature": temperature,
                 "seed": seed,
                 "model": model,
             }
         )
 
+        # Combine prompt + system_prompt for keyword matching, since
+        # with caching the skill/context text may be in system_prompt
+        # rather than the user prompt.
+        combined = prompt
+        if system_prompt:
+            combined = system_prompt + "\n" + prompt
+
         # Conflict analysis prompt (Pass 1) -- return canned markdown analysis
-        if "Conflict Analyst" in prompt or "conflict resolution document" in prompt:
+        if "Conflict Analyst" in combined or "conflict resolution document" in combined:
             return (
                 "## Advisor Position Summary\n\n"
                 "- **Executor:** Start with main.py, add tests. Effort: S.\n"
@@ -110,7 +124,7 @@ class FakeLLM:
             )
 
         # Synthesizer prompt -- return valid JSON plan
-        if "Plan Synthesizer" in prompt or "implementation_steps" in prompt:
+        if "Plan Synthesizer" in combined or "implementation_steps" in combined:
             return """```json
 {
     "title": "Test Change",
@@ -147,7 +161,7 @@ class FakeLLM:
 ```"""
 
         # Framer prompt -- return valid JSON framed requirement
-        if "Requirements Framer" in prompt or "clarifications_needed" in prompt:
+        if "Requirements Framer" in combined or "clarifications_needed" in combined:
             return """```json
 {
     "type": "story",
@@ -173,14 +187,14 @@ class FakeLLM:
             "Business Advisor",
         ]
         for keyword in advisor_keywords:
-            if keyword in prompt:
+            if keyword in combined:
                 return f"[{keyword}] Analysis of the proposed change."
 
         return "Generic LLM response."
 
     async def chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         temperature: float | None = None,
         seed: int | None = None,
@@ -195,6 +209,7 @@ class FakeLLM:
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float | None = None,
         seed: int | None = None,
         model: str | None = None,
@@ -202,6 +217,7 @@ class FakeLLM:
         """Like complete() but returns token usage metadata too."""
         text = await self.complete(
             prompt,
+            system_prompt=system_prompt,
             temperature=temperature,
             seed=seed,
             model=model,
@@ -217,7 +233,7 @@ class FakeLLM:
 
     async def chat_with_usage(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         temperature: float | None = None,
         seed: int | None = None,

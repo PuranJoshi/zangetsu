@@ -125,3 +125,74 @@ class TestLoadEnvFile:
             _load_env_file(env_file)
             assert os.environ["TEST_CC_REAL"] == "yes"
             del os.environ["TEST_CC_REAL"]
+
+
+class TestPromptCachingConfig:
+    """Tests for prompt caching settings and provider detection."""
+
+    def test_caching_enabled_by_default(self) -> None:
+        with mock.patch.dict(os.environ, {"LLM_API_KEY": "k", "LLM_BASE_URL": "u"}, clear=True):
+            s = Settings()
+            assert s.code_council_prompt_caching is True
+
+    def test_provider_type_defaults_to_auto(self) -> None:
+        with mock.patch.dict(os.environ, {"LLM_API_KEY": "k", "LLM_BASE_URL": "u"}, clear=True):
+            s = Settings()
+            assert s.code_council_provider_type == "auto"
+
+    def test_is_anthropic_explicit(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "LLM_API_KEY": "k",
+                "LLM_BASE_URL": "https://api.openai.com/v1",
+                "CODE_COUNCIL_PROVIDER_TYPE": "anthropic",
+            },
+            clear=True,
+        ):
+            s = Settings()
+            assert s.is_anthropic_provider() is True
+
+    def test_is_openai_explicit(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "LLM_API_KEY": "k",
+                "LLM_BASE_URL": "https://api.anthropic.com/v1",
+                "CODE_COUNCIL_PROVIDER_TYPE": "openai",
+            },
+            clear=True,
+        ):
+            s = Settings()
+            assert s.is_anthropic_provider() is False
+
+    def test_auto_detect_anthropic(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"LLM_API_KEY": "k", "LLM_BASE_URL": "https://api.anthropic.com/v1"},
+            clear=True,
+        ):
+            s = Settings()
+            assert s.is_anthropic_provider() is True
+
+    def test_auto_detect_openai(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"LLM_API_KEY": "k", "LLM_BASE_URL": "https://api.openai.com/v1"},
+            clear=True,
+        ):
+            s = Settings()
+            assert s.is_anthropic_provider() is False
+
+    def test_none_disables_provider_detection(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "LLM_API_KEY": "k",
+                "LLM_BASE_URL": "https://api.anthropic.com/v1",
+                "CODE_COUNCIL_PROVIDER_TYPE": "none",
+            },
+            clear=True,
+        ):
+            s = Settings()
+            assert s.is_anthropic_provider() is False

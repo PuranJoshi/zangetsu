@@ -23,6 +23,7 @@ Python lesson: Pydantic model with a method
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 from pathlib import Path
@@ -46,6 +47,7 @@ class LLMClient(Protocol):
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float | None = None,
         seed: int | None = None,
         model: str | None = None,
@@ -55,6 +57,7 @@ class LLMClient(Protocol):
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float | None = None,
         seed: int | None = None,
         model: str | None = None,
@@ -117,6 +120,7 @@ class FramedRequirement(BaseModel):
 _SKILLS_DIR = Path(__file__).parent / "skills"
 
 
+@functools.lru_cache(maxsize=1)
 def _load_framer_skill() -> str:
     """Load the framer skill prompt from skills/framer.md.
 
@@ -124,6 +128,8 @@ def _load_framer_skill() -> str:
     is loaded by explicit path because there's exactly one framer.
     It uses the same frontmatter format though, and we extract just
     the body (below the ---).
+
+    Results are cached in-memory after first load.
     """
     path = _SKILLS_DIR / "framer.md"
     if not path.is_file():
@@ -185,28 +191,31 @@ def _extract_json(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _framer_prompt(
-    change_description: str,
-    context_summary: str,
-    clarification_answers: str = "",
-) -> str:
-    """Build the prompt for the Framer.
+def _framer_system_prompt(context_summary: str) -> str:
+    """Build the system prompt for the Framer.
 
-    Args:
-        change_description: The raw feature request from the user.
-        context_summary: Brief summary of the project context (tech stack, etc.)
-        clarification_answers: If this is a follow-up after clarifying questions
-            were asked, this contains the user's answers.
+    Contains the skill reference and project context -- stable content
+    that benefits from caching across clarification rounds.
     """
     skill_text = _load_framer_skill()
-
     parts = []
     if skill_text:
         parts.append(f"{skill_text}\n\n---\n")
-
     if context_summary:
-        parts.append(f"## Project Context\n\n{context_summary}\n\n---\n")
+        parts.append(f"## Project Context\n\n{context_summary}")
+    return "\n".join(parts)
 
+
+def _framer_prompt(
+    change_description: str,
+    clarification_answers: str = "",
+) -> str:
+    """Build the user prompt for the Framer.
+
+    Contains the change description and any clarification answers --
+    content that varies between calls.
+    """
+    parts = []
     parts.append(
         f"A user has submitted the following feature request:\n\n---\n{change_description}\n---\n\n"
     )
@@ -259,13 +268,13 @@ async def frame_request(
     framer_model = get_skill_model("framer") or None
     stage_usage = TokenUsage()
 
+    system = _framer_system_prompt(context_summary)
     prompt = _framer_prompt(
         change_description,
-        context_summary,
         clarification_answers,
     )
 
-    result = await llm.complete_with_usage(prompt, model=framer_model)
+    result = await llm.complete_with_usage(prompt, system_prompt=system, model=framer_model)
     raw_response = result.text
     stage_usage += result.usage
 

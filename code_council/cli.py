@@ -1230,7 +1230,7 @@ async def _humanise_markdown(markdown: str, llm) -> str:
     if not skill_text:
         return markdown
 
-    prompt = (
+    system = (
         f"{skill_text}\n\n"
         "---\n\n"
         "Below is a structured implementation plan in Markdown format. "
@@ -1243,15 +1243,13 @@ async def _humanise_markdown(markdown: str, llm) -> str:
         "- Acceptance criteria items (keep as bullet points)\n"
         "- The framed requirement section structure\n\n"
         "Return ONLY the final rewritten Markdown document. No commentary, "
-        "no draft/audit steps, no explanation.\n\n"
-        "---\n\n"
-        f"{markdown}"
+        "no draft/audit steps, no explanation."
     )
 
     from code_council.config import get_skill_model
 
     humanizer_model = get_skill_model("humanizer") or None
-    return await llm.complete(prompt, model=humanizer_model)
+    return await llm.complete(markdown, system_prompt=system, model=humanizer_model)
 
 
 def _plan_to_markdown(plan_data: dict) -> str:

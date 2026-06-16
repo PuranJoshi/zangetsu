@@ -162,6 +162,8 @@ A ready-to-copy version of this is available in `env.example`.
 | `CODE_COUNCIL_SAVE_PLANS` | No | `True` | Persist plans to disk |
 | `CODE_COUNCIL_PLAN_DIR` | No | `~/.code-council/plans` | Plan storage path |
 | `CODE_COUNCIL_TRANSCRIPT_DIR` | No | `~/.code-council/transcripts` | Transcript storage path |
+| `CODE_COUNCIL_PROMPT_CACHING` | No | `True` | Enable LLM prompt caching |
+| `CODE_COUNCIL_PROVIDER_TYPE` | No | `auto` | Cache strategy: `auto`, `anthropic`, `openai`, `none` |
 
 ## Running Tests
 
