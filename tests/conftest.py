@@ -201,7 +201,10 @@ class FakeLLM:
     ) -> LLMResult:
         """Like complete() but returns token usage metadata too."""
         text = await self.complete(
-            prompt, temperature=temperature, seed=seed, model=model,
+            prompt,
+            temperature=temperature,
+            seed=seed,
+            model=model,
         )
         return LLMResult(
             text=text,
@@ -221,7 +224,10 @@ class FakeLLM:
         model: str | None = None,
     ) -> LLMResult:
         text = await self.chat(
-            messages, temperature=temperature, seed=seed, model=model,
+            messages,
+            temperature=temperature,
+            seed=seed,
+            model=model,
         )
         return LLMResult(
             text=text,

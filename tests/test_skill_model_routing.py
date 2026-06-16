@@ -122,7 +122,9 @@ class TestEnvVarModelOverride:
                 monkeypatch.delenv(key)
 
     def test_env_var_overrides_frontmatter(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Env var should take priority over frontmatter model."""
         _write_skill_with_model(
@@ -200,11 +202,16 @@ class TestModelPassedToLLM:
     ) -> None:
         """An advisor with a model override should pass it to llm.complete()."""
         _write_skill_with_model(
-            tmp_path, "architect.md", name="architect", model="gpt-4o",
+            tmp_path,
+            "architect.md",
+            name="architect",
+            model="gpt-4o",
             temperature_rank=0,
         )
         _write_skill_with_model(
-            tmp_path, "executor.md", name="executor",
+            tmp_path,
+            "executor.md",
+            name="executor",
             temperature_rank=1,
         )
 
@@ -219,9 +226,7 @@ class TestModelPassedToLLM:
         # FakeLLM records call_params with model field.
         # Find the call for architect (has model) and executor (no model).
         models_used = [p["model"] for p in fake_llm.call_params]
-        assert "gpt-4o" in models_used, (
-            "Architect advisor should pass model='gpt-4o' to LLM"
-        )
+        assert "gpt-4o" in models_used, "Architect advisor should pass model='gpt-4o' to LLM"
         assert None in models_used, (
             "Executor advisor (no model override) should pass model=None to LLM"
         )
@@ -242,7 +247,9 @@ class TestConfigSkillMismatch:
                 monkeypatch.delenv(key)
 
     def test_env_var_set_for_nonexistent_skill(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Env var for a skill that doesn't exist is silently ignored.
 
@@ -258,7 +265,9 @@ class TestConfigSkillMismatch:
         assert skills[0].model == ""
 
     def test_env_var_typo_does_not_affect_skill(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A typo in the env var name (e.g. ARCHTIECT) has no effect.
 
@@ -271,20 +280,26 @@ class TestConfigSkillMismatch:
         assert skills[0].model == ""
 
     def test_frontmatter_model_without_env_var_still_works(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """User sets model in frontmatter but forgets the env var.
 
         The frontmatter value should be used -- env var is not required.
         """
         _write_skill_with_model(
-            tmp_path, "architect.md", name="architect", model="gpt-4o",
+            tmp_path,
+            "architect.md",
+            name="architect",
+            model="gpt-4o",
         )
         skills = discover_advisor_skills(tmp_path)
         assert skills[0].model == "gpt-4o"
 
     def test_env_var_for_disabled_skill_is_ignored(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """User sets env var but the skill has enabled: false.
 
@@ -313,7 +328,9 @@ class TestConfigSkillMismatch:
 
     @pytest.mark.asyncio
     async def test_env_var_model_reaches_framer_llm(
-        self, fake_llm, monkeypatch: pytest.MonkeyPatch,
+        self,
+        fake_llm,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """User sets CODE_COUNCIL_MODEL_FRAMER -- it should reach llm.complete().
 
@@ -330,7 +347,10 @@ class TestConfigSkillMismatch:
 
     @pytest.mark.asyncio
     async def test_env_var_model_reaches_synthesizer_llm(
-        self, fake_llm, fake_context, monkeypatch: pytest.MonkeyPatch,
+        self,
+        fake_llm,
+        fake_context,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """User sets CODE_COUNCIL_MODEL_SYNTHESIZER -- it should reach llm.complete()."""
         monkeypatch.setenv("CODE_COUNCIL_MODEL_SYNTHESIZER", "gpt-4o")
@@ -347,7 +367,10 @@ class TestConfigSkillMismatch:
 
     @pytest.mark.asyncio
     async def test_env_var_model_reaches_analysis_llm(
-        self, fake_llm, fake_context, monkeypatch: pytest.MonkeyPatch,
+        self,
+        fake_llm,
+        fake_context,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """User sets CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS -- it should reach llm.complete()."""
         monkeypatch.setenv("CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS", "gpt-4o")
@@ -363,7 +386,9 @@ class TestConfigSkillMismatch:
 
     @pytest.mark.asyncio
     async def test_no_env_var_means_global_default(
-        self, fake_llm, fake_context,
+        self,
+        fake_llm,
+        fake_context,
     ) -> None:
         """Without any env var or frontmatter, model=None is passed to LLM.
 
