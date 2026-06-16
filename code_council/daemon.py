@@ -1398,8 +1398,6 @@ async def scan_tree(req: ScanTreeRequest) -> dict:
     )
 
     root = Path(req.project_path).resolve()
-    if ".." in str(root):
-        raise HTTPException(status_code=400, detail="Invalid project path")
     if not root.is_dir():
         raise HTTPException(status_code=404, detail="Directory not found")
 
