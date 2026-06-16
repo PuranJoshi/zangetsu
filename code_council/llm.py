@@ -43,7 +43,9 @@ logger = logging.getLogger(__name__)
 
 # Type alias for chat messages. Each message is a dict with "role" and "content".
 # role is one of: "system", "user", "assistant"
-Message = dict[str, str]
+# Content can be a plain string or a list of content blocks (for Anthropic
+# cache_control support).  Using Any instead of str to support both.
+Message = dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
@@ -61,11 +63,19 @@ class TokenUsage:
 
     Supports addition (``usage_a + usage_b``) for easy aggregation
     across multiple LLM calls within a pipeline stage.
+
+    Caching fields:
+        cache_creation_tokens: Tokens written to the provider's cache on
+            first use (Anthropic reports this; OpenAI does not).
+        cache_read_tokens: Tokens served from cache instead of being
+            re-processed.  Both Anthropic and OpenAI report this.
     """
 
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
 
     def __add__(self, other: TokenUsage) -> TokenUsage:
         """Accumulate token counts: ``usage_a + usage_b``."""
@@ -73,6 +83,8 @@ class TokenUsage:
             prompt_tokens=self.prompt_tokens + other.prompt_tokens,
             completion_tokens=self.completion_tokens + other.completion_tokens,
             total_tokens=self.total_tokens + other.total_tokens,
+            cache_creation_tokens=self.cache_creation_tokens + other.cache_creation_tokens,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
         )
 
     def __iadd__(self, other: TokenUsage) -> TokenUsage:
@@ -80,6 +92,8 @@ class TokenUsage:
         self.prompt_tokens += other.prompt_tokens
         self.completion_tokens += other.completion_tokens
         self.total_tokens += other.total_tokens
+        self.cache_creation_tokens += other.cache_creation_tokens
+        self.cache_read_tokens += other.cache_read_tokens
         return self
 
     def to_dict(self) -> dict[str, int]:
@@ -88,6 +102,8 @@ class TokenUsage:
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.total_tokens,
+            "cache_creation_tokens": self.cache_creation_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
         }
 
 
@@ -139,6 +155,8 @@ class TokenTracker:
                 prompt_tokens=usage.prompt_tokens,
                 completion_tokens=usage.completion_tokens,
                 total_tokens=usage.total_tokens,
+                cache_creation_tokens=usage.cache_creation_tokens,
+                cache_read_tokens=usage.cache_read_tokens,
             )
         self.total += usage
 
@@ -163,15 +181,21 @@ class TokenTracker:
         sep = "=" * 60
         lines = [f"\n{sep}", " TOKEN USAGE", sep]
         for name, usage in self.stage_usage.items():
-            lines.append(
+            line = (
                 f"  {name.title():<14} {usage.total_tokens:>6,} tokens "
                 f"({usage.prompt_tokens:,} in + {usage.completion_tokens:,} out)"
             )
+            if usage.cache_read_tokens:
+                line += f"  [cached: {usage.cache_read_tokens:,}]"
+            lines.append(line)
         lines.append("  " + "\u2500" * 44)
-        lines.append(
+        total_line = (
             f"  {'Total':<14} {self.total.total_tokens:>6,} tokens "
             f"({self.total.prompt_tokens:,} in + {self.total.completion_tokens:,} out)"
         )
+        if self.total.cache_read_tokens:
+            total_line += f"  [cached: {self.total.cache_read_tokens:,}]"
+        lines.append(total_line)
         lines.append(sep)
         return "\n".join(lines)
 
@@ -194,6 +218,7 @@ class LLMClient(Protocol):
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float | None = None,
         seed: int | None = None,
         model: str | None = None,
@@ -212,6 +237,7 @@ class LLMClient(Protocol):
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float | None = None,
         seed: int | None = None,
         model: str | None = None,
@@ -238,6 +264,18 @@ class OpenAICompatibleLLM:
     This is the ONLY class that knows about the API. Everything else
     depends on the LLMClient Protocol, not this concrete class.
     Swapping providers = changing the base URL and API key.
+
+    Prompt caching:
+        When ``settings.code_council_prompt_caching`` is enabled and a
+        ``system_prompt`` is provided to ``complete()``, the shared
+        content is placed in a ``system`` message so providers can
+        cache and reuse it across calls.
+
+        - **Anthropic**: Explicit ``cache_control`` breakpoints are
+          added to system message content blocks (90% token discount).
+        - **OpenAI**: Automatic prefix caching kicks in for shared
+          prefixes >= 1024 tokens (50% discount).  No special markup
+          needed -- just ensure the system message is identical.
     """
 
     def __init__(self, settings: Settings | None = None) -> None:
@@ -247,6 +285,30 @@ class OpenAICompatibleLLM:
             api_key=self._settings.llm_api_key,
             base_url=self._settings.llm_base_url,
         )
+
+    def _build_system_message(self, system_prompt: str) -> Message:
+        """Build a system message with optional cache_control for Anthropic.
+
+        When the provider is Anthropic and prompt caching is enabled,
+        the content is wrapped in a content-block array with a
+        ``cache_control`` breakpoint.  This tells Anthropic to cache
+        everything up to (and including) this block.
+
+        For OpenAI-compatible endpoints, a plain string is used.
+        OpenAI automatically caches identical prefixes >= 1024 tokens.
+        """
+        if self._settings.code_council_prompt_caching and self._settings.is_anthropic_provider():
+            return {
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+            }
+        return {"role": "system", "content": system_prompt}
 
     async def _call_api(
         self,
@@ -297,10 +359,21 @@ class OpenAICompatibleLLM:
                 text = (response.choices[0].message.content or "").strip()
                 usage = TokenUsage()
                 if response.usage:
+                    # Standard token counts (all providers).
                     usage = TokenUsage(
                         prompt_tokens=response.usage.prompt_tokens or 0,
                         completion_tokens=response.usage.completion_tokens or 0,
                         total_tokens=response.usage.total_tokens or 0,
+                    )
+                    # Anthropic returns cache stats in the usage object.
+                    # OpenAI may also return cached token info.  Use
+                    # getattr for forward-compatibility with providers
+                    # that don't include these fields.
+                    usage.cache_creation_tokens = (
+                        getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+                    )
+                    usage.cache_read_tokens = (
+                        getattr(response.usage, "cache_read_input_tokens", 0) or 0
                     )
                 return LLMResult(text=text, usage=usage)
             except (asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
@@ -324,15 +397,27 @@ class OpenAICompatibleLLM:
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         max_retries: int = 3,
         timeout: float | None = None,
         temperature: float | None = None,
         seed: int | None = None,
         model: str | None = None,
     ) -> str:
-        """Send a single prompt and return the assistant text."""
+        """Send a single prompt and return the assistant text.
+
+        Args:
+            system_prompt: Optional system message placed before the
+                user prompt.  Used for prompt caching -- shared content
+                (project context, skill instructions) goes here so the
+                LLM provider can cache it across calls.
+        """
+        messages: list[Message] = []
+        if system_prompt and self._settings.code_council_prompt_caching:
+            messages.append(self._build_system_message(system_prompt))
+        messages.append({"role": "user", "content": prompt})
         result = await self._call_api(
-            [{"role": "user", "content": prompt}],
+            messages,
             max_retries=max_retries,
             timeout=timeout,
             temperature=temperature,
@@ -368,6 +453,7 @@ class OpenAICompatibleLLM:
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         max_retries: int = 3,
         timeout: float | None = None,
         temperature: float | None = None,
@@ -375,8 +461,12 @@ class OpenAICompatibleLLM:
         model: str | None = None,
     ) -> LLMResult:
         """Like complete() but returns an LLMResult with token usage."""
+        messages: list[Message] = []
+        if system_prompt and self._settings.code_council_prompt_caching:
+            messages.append(self._build_system_message(system_prompt))
+        messages.append({"role": "user", "content": prompt})
         return await self._call_api(
-            [{"role": "user", "content": prompt}],
+            messages,
             max_retries=max_retries,
             timeout=timeout,
             temperature=temperature,

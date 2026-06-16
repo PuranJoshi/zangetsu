@@ -102,17 +102,17 @@ async def test_analyze_conflicts_returns_markdown(fake_llm, fake_context) -> Non
 
 @pytest.mark.asyncio
 async def test_analyze_conflicts_prompt_contains_advisor_names(fake_llm, fake_context) -> None:
-    """The analysis prompt should include all advisor names."""
+    """The analysis system_prompt should include all advisor names."""
     _analysis, _usage = await analyze_conflicts(
         change_description="Add a feature",
         advisor_responses=SAMPLE_ADVISOR_RESPONSES,
         context=fake_context,
         llm=fake_llm,
     )
-    # FakeLLM records the prompt
-    analysis_prompt = fake_llm.prompts[-1]
+    # With prompt caching, advisor analyses go in the system_prompt
+    system = fake_llm.call_params[-1]["system_prompt"]
     for name in SAMPLE_ADVISOR_RESPONSES:
-        assert name in analysis_prompt
+        assert name in system
 
 
 @pytest.mark.asyncio
@@ -155,10 +155,10 @@ async def test_synthesis_prompt_contains_conflict_analysis(fake_llm, fake_contex
         llm=fake_llm,
         conflict_analysis=analysis,
     )
-    # The synthesis prompt is the last one recorded
-    synthesis_prompt = fake_llm.prompts[-1]
-    assert "CONFLICT ANALYSIS" in synthesis_prompt
-    assert "Advisor Position Summary" in synthesis_prompt
+    # With prompt caching, conflict analysis goes in the system_prompt
+    system = fake_llm.call_params[-1]["system_prompt"]
+    assert "CONFLICT ANALYSIS" in system
+    assert "Advisor Position Summary" in system
 
 
 @pytest.mark.asyncio
@@ -172,6 +172,7 @@ async def test_synthesize_without_analysis_still_works(fake_llm, fake_context) -
         llm=fake_llm,
     )
     assert isinstance(plan, ChangePlan)
-    # Should not contain the analysis section
-    synthesis_prompt = fake_llm.prompts[-1]
-    assert "CONFLICT ANALYSIS" not in synthesis_prompt
+    # Should not contain the analysis section (check both prompt and system_prompt)
+    system = fake_llm.call_params[-1]["system_prompt"] or ""
+    assert "CONFLICT ANALYSIS" not in system
+    assert "CONFLICT ANALYSIS" not in fake_llm.prompts[-1]

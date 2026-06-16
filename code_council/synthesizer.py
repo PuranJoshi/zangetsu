@@ -34,6 +34,7 @@ class LLMClient(Protocol):
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float | None = None,
         seed: int | None = None,
         model: str | None = None,
@@ -43,6 +44,7 @@ class LLMClient(Protocol):
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float | None = None,
         seed: int | None = None,
         model: str | None = None,
@@ -151,23 +153,19 @@ def _extract_json(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _analysis_prompt(
-    change_description: str,
+def _analysis_system_prompt(
     advisor_responses: dict[str, str],
     context: ProjectContext,
 ) -> str:
-    """Build the prompt for Pass 1: conflict analysis.
+    """Build the system prompt for Pass 1: conflict analysis.
 
-    This prompt asks the LLM to read all advisor outputs, identify
-    agreements and conflicts, and produce a structured markdown
-    document resolving disagreements -- before the plan is generated.
+    Contains the skill reference, project metadata, and advisor
+    analyses -- large, stable content that benefits from caching.
     """
     skill_text = discover_analysis_skill()
-
     advisor_section = "\n\n".join(
         f"**{name}:**\n{text}" for name, text in advisor_responses.items()
     )
-
     tech_summary = (
         f"Languages: {', '.join(context.tech_stack.languages)}, "
         f"Frameworks: {', '.join(context.tech_stack.frameworks)}, "
@@ -177,43 +175,48 @@ def _analysis_prompt(
     parts = []
     if skill_text:
         parts.append(f"{skill_text}\n\n---\n")
-
     parts.append(
         "You are the Conflict Analyst for a Code Council. Your job is to "
         "read all advisor analyses, identify where they agree and disagree, "
         "and produce a structured conflict resolution document.\n\n"
         f"**Project:** {context.project_path}\n"
         f"**Stack:** {tech_summary}\n\n"
-        "The user wants to make this change:\n\n"
-        "---\n"
-        f"{change_description}\n"
-        "---\n\n"
-        f"ADVISOR ANALYSES:\n\n{advisor_section}\n\n"
-        "---\n\n"
-        "Produce the conflict analysis as structured markdown. "
-        "Do NOT produce JSON or implementation steps."
+        f"ADVISOR ANALYSES:\n\n{advisor_section}"
     )
     return "\n".join(parts)
 
 
-def _synthesizer_prompt(
+def _analysis_prompt(
     change_description: str,
+) -> str:
+    """Build the user prompt for Pass 1: conflict analysis.
+
+    Contains only the change description and output instructions.
+    """
+    return (
+        "The user wants to make this change:\n\n"
+        "---\n"
+        f"{change_description}\n"
+        "---\n\n"
+        "Produce the conflict analysis as structured markdown. "
+        "Do NOT produce JSON or implementation steps."
+    )
+
+
+def _synthesizer_system_prompt(
     advisor_responses: dict[str, str],
     context: ProjectContext,
     conflict_analysis: str = "",
 ) -> str:
-    """Build the prompt for the plan synthesizer.
+    """Build the system prompt for the plan synthesizer.
 
-    When *conflict_analysis* is provided (two-pass mode), it is included
-    as a ``CONFLICT ANALYSIS`` section before the raw advisor outputs so
-    the synthesizer can use it as its primary reasoning input.
+    Contains the skill reference, project metadata, conflict analysis,
+    and advisor analyses -- large content that benefits from caching.
     """
     skill_text = discover_synthesizer_skill()
-
     advisor_section = "\n\n".join(
         f"**{name}:**\n{text}" for name, text in advisor_responses.items()
     )
-
     tech_summary = (
         f"Languages: {', '.join(context.tech_stack.languages)}, "
         f"Frameworks: {', '.join(context.tech_stack.frameworks)}, "
@@ -223,14 +226,6 @@ def _synthesizer_prompt(
     parts = []
     if skill_text:
         parts.append(f"{skill_text}\n\n---\n")
-
-    analysis_block = ""
-    if conflict_analysis:
-        analysis_block = (
-            "CONFLICT ANALYSIS (from Pass 1 -- use as primary reasoning input):\n\n"
-            f"{conflict_analysis}\n\n"
-            "---\n\n"
-        )
 
     parts.append(
         "You are the Plan Synthesizer for a Code Council. Your job is to "
@@ -238,12 +233,31 @@ def _synthesizer_prompt(
         "structured implementation plan.\n\n"
         f"**Project:** {context.project_path}\n"
         f"**Stack:** {tech_summary}\n\n"
+    )
+
+    if conflict_analysis:
+        parts.append(
+            "CONFLICT ANALYSIS (from Pass 1 -- use as primary reasoning input):\n\n"
+            f"{conflict_analysis}\n\n"
+            "---\n\n"
+        )
+
+    parts.append(f"ADVISOR ANALYSES:\n\n{advisor_section}")
+    return "\n".join(parts)
+
+
+def _synthesizer_prompt(
+    change_description: str,
+) -> str:
+    """Build the user prompt for the plan synthesizer.
+
+    Contains the change description, JSON schema example, and output
+    rules.
+    """
+    return (
         "The user wants to make this change:\n\n"
         "---\n"
         f"{change_description}\n"
-        "---\n\n"
-        f"{analysis_block}"
-        f"ADVISOR ANALYSES:\n\n{advisor_section}\n\n"
         "---\n\n"
         "Produce the implementation plan as valid JSON:\n\n"
         "```json\n"
@@ -304,7 +318,6 @@ def _synthesizer_prompt(
         "which implementation_step order numbers belong to that change. "
         "Order them so earlier changes have no dependency on later ones.\n"
     )
-    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -384,8 +397,9 @@ async def analyze_conflicts(
     Returns ``(analysis_text, token_usage)``.
     """
     analysis_model = get_skill_model("synthesizer_analysis") or None
-    prompt = _analysis_prompt(change_description, advisor_responses, context)
-    result = await llm.complete_with_usage(prompt, model=analysis_model)
+    system = _analysis_system_prompt(advisor_responses, context)
+    prompt = _analysis_prompt(change_description)
+    result = await llm.complete_with_usage(prompt, system_prompt=system, model=analysis_model)
     return result.text, result.usage
 
 
@@ -417,8 +431,9 @@ async def synthesize_plan(
     synth_model = get_skill_model("synthesizer") or None
     stage_usage = TokenUsage()
 
-    prompt = _synthesizer_prompt(change_description, advisor_responses, context, conflict_analysis)
-    result = await llm.complete_with_usage(prompt, model=synth_model)
+    system = _synthesizer_system_prompt(advisor_responses, context, conflict_analysis)
+    prompt = _synthesizer_prompt(change_description)
+    result = await llm.complete_with_usage(prompt, system_prompt=system, model=synth_model)
     raw_response = result.text
     stage_usage += result.usage
     json_text = _extract_json(raw_response)

@@ -35,6 +35,7 @@ Python lesson: yaml.safe_load vs yaml.load
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import logging
 import time
@@ -54,7 +55,7 @@ logger = logging.getLogger(__name__)
 # LLM Protocol
 # ---------------------------------------------------------------------------
 
-Message = dict[str, str]
+Message = dict[str, Any]
 
 
 class LLMClient(Protocol):
@@ -68,6 +69,7 @@ class LLMClient(Protocol):
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float | None = None,
         seed: int | None = None,
         model: str | None = None,
@@ -77,6 +79,7 @@ class LLMClient(Protocol):
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float | None = None,
         seed: int | None = None,
         model: str | None = None,
@@ -201,11 +204,22 @@ def discover_advisor_skills(
 
     Returns skills sorted by temperature_rank (ascending) for
     deterministic ordering regardless of filesystem order.
+
+    Results are cached in-memory after first load.  Skill files don't
+    change during a pipeline run, so re-reading them from disk on every
+    call is unnecessary I/O.
     """
-    skills_dir = skills_dir or _SKILLS_DIR
+    return list(_discover_advisor_skills_cached(skills_dir or _SKILLS_DIR))
+
+
+@functools.lru_cache(maxsize=4)
+def _discover_advisor_skills_cached(
+    skills_dir: Path,
+) -> tuple[AdvisorSkill, ...]:
+    """Cached inner implementation (returns tuple for hashability)."""
     if not skills_dir.is_dir():
         logger.warning("Skills directory not found: %s", skills_dir)
-        return []
+        return ()
 
     skills: list[AdvisorSkill] = []
 
@@ -262,7 +276,7 @@ def discover_advisor_skills(
         len(skills),
         [s.name for s in skills],
     )
-    return skills
+    return tuple(skills)
 
 
 def discover_synthesizer_skill(
@@ -271,24 +285,9 @@ def discover_synthesizer_skill(
     """Load the synthesizer skill (type: synthesizer) from the skills directory.
 
     Returns the Markdown body of the first enabled synthesizer file,
-    or an empty string if none found.
+    or an empty string if none found.  Results are cached in-memory.
     """
-    skills_dir = skills_dir or _SKILLS_DIR
-    if not skills_dir.is_dir():
-        return ""
-
-    for path in sorted(skills_dir.glob("*.md")):
-        try:
-            text = path.read_text()
-        except OSError:
-            continue
-
-        frontmatter, body = _parse_frontmatter(text)
-        if frontmatter.get("type") == "synthesizer" and frontmatter.get("enabled", True):
-            return body
-
-    logger.warning("No synthesizer skill found in %s", skills_dir)
-    return ""
+    return _discover_skill_cached(skills_dir or _SKILLS_DIR, "synthesizer")
 
 
 def discover_analysis_skill(
@@ -298,9 +297,15 @@ def discover_analysis_skill(
 
     Returns the Markdown body of the first enabled synthesizer_analysis
     file, or an empty string if none found.  Used by the two-pass
-    synthesis pipeline as the Pass 1 prompt.
+    synthesis pipeline as the Pass 1 prompt.  Results are cached
+    in-memory.
     """
-    skills_dir = skills_dir or _SKILLS_DIR
+    return _discover_skill_cached(skills_dir or _SKILLS_DIR, "synthesizer_analysis")
+
+
+@functools.lru_cache(maxsize=8)
+def _discover_skill_cached(skills_dir: Path, skill_type: str) -> str:
+    """Cached loader for single-instance skills (synthesizer, analysis, etc.)."""
     if not skills_dir.is_dir():
         return ""
 
@@ -311,10 +316,10 @@ def discover_analysis_skill(
             continue
 
         frontmatter, body = _parse_frontmatter(text)
-        if frontmatter.get("type") == "synthesizer_analysis" and frontmatter.get("enabled", True):
+        if frontmatter.get("type") == skill_type and frontmatter.get("enabled", True):
             return body
 
-    logger.warning("No synthesizer_analysis skill found in %s", skills_dir)
+    logger.warning("No %s skill found in %s", skill_type, skills_dir)
     return ""
 
 
@@ -404,20 +409,40 @@ def _format_context(ctx: ProjectContext) -> str:
     return "\n".join(parts)
 
 
+def _advisor_system_prompt(context: ProjectContext) -> str:
+    """Build the shared system prompt for all advisors.
+
+    This contains the project context which is identical across all
+    advisor calls.  Placing it in the system message lets LLM
+    providers cache it:
+
+    - **Anthropic**: cached via explicit ``cache_control`` breakpoints
+      (90% token cost reduction on cache hits).
+    - **OpenAI**: automatically cached when the prefix >= 1024 tokens
+      matches across calls (50% token cost reduction).
+
+    The per-advisor skill text and change description go in the user
+    message (see ``_advisor_prompt``).
+    """
+    return _format_context(context)
+
+
 def _advisor_prompt(
     skill: AdvisorSkill,
     change_description: str,
-    context: ProjectContext,
     negotiation_feedback: str = "",
 ) -> str:
-    """Build the full prompt for a single advisor."""
+    """Build the per-advisor user prompt.
+
+    Contains the advisor-specific skill reference, role description,
+    change description, and instructions.  The shared project context
+    is passed separately via ``system_prompt`` for caching.
+    """
     parts = []
 
     if skill.skill_text:
         parts.append(f"## Advisor Skill Reference\n\n{skill.skill_text}\n\n---\n")
 
-    parts.append(_format_context(context))
-    parts.append("\n---\n")
     parts.append(f"{skill.role_description}\n\n")
     parts.append(
         "A user wants to make the following change to this codebase:\n\n"
@@ -488,16 +513,19 @@ async def run_advisors(
             "seed": _advisor_seed(skill.seed_offset, plan_id),
         }
 
+    # Shared system prompt -- identical across all advisors, cacheable.
+    system = _advisor_system_prompt(context)
+
     async def _run_one(skill: AdvisorSkill) -> tuple[str, str, TokenUsage]:
         prompt = _advisor_prompt(
             skill,
             change_description,
-            context,
             negotiation_feedback,
         )
         params = advisor_params[skill.display_name]
         result = await llm.complete_with_usage(
             prompt,
+            system_prompt=system,
             temperature=params["temperature"],
             seed=params["seed"],
             model=skill.model or None,
@@ -530,24 +558,9 @@ def discover_decision_gate_skill(
     """Load the decision gate skill (type: decision_gate) from skills/.
 
     Returns the Markdown body of the first enabled decision_gate file,
-    or an empty string if none found.
+    or an empty string if none found.  Results are cached in-memory.
     """
-    skills_dir = skills_dir or _SKILLS_DIR
-    if not skills_dir.is_dir():
-        return ""
-
-    for path in sorted(skills_dir.glob("*.md")):
-        try:
-            text = path.read_text()
-        except OSError:
-            continue
-
-        frontmatter, body = _parse_frontmatter(text)
-        if frontmatter.get("type") == "decision_gate" and frontmatter.get("enabled", True):
-            return body
-
-    logger.warning("No decision gate skill found in %s", skills_dir)
-    return ""
+    return _discover_skill_cached(skills_dir or _SKILLS_DIR, "decision_gate")
 
 
 # ---------------------------------------------------------------------------
@@ -555,11 +568,19 @@ def discover_decision_gate_skill(
 # ---------------------------------------------------------------------------
 
 
+def _plan_review_system_prompt(plan_summary: str) -> str:
+    """Shared system prompt for plan review -- the plan being reviewed.
+
+    Identical across all advisor review calls, so the LLM provider can
+    cache it.
+    """
+    return f"## Plan Under Review\n\n{plan_summary}"
+
+
 def _plan_review_prompt(
     skill: AdvisorSkill,
-    plan_summary: str,
 ) -> str:
-    """Build a prompt for an advisor to review a synthesized plan."""
+    """Build the per-advisor user prompt for plan review."""
     parts = []
 
     if skill.skill_text:
@@ -569,9 +590,6 @@ def _plan_review_prompt(
     parts.append(
         "A synthesized implementation plan has been produced. Review it "
         "from your specific perspective.\n\n"
-        "---\n"
-        f"{plan_summary}\n"
-        "---\n\n"
         "If the plan is sound from your perspective, respond with "
         "exactly: PROCEED\n\n"
         "If you have concerns, list them as prioritised recommendations. "
@@ -656,8 +674,11 @@ async def review_plan(
     plan_summary = _format_plan_for_review(plan_data)
     total = len(skills)
 
+    # Shared system prompt -- plan summary is identical across all reviewers.
+    system = _plan_review_system_prompt(plan_summary)
+
     async def _review_one(skill: AdvisorSkill) -> tuple[str, str, TokenUsage]:
-        prompt = _plan_review_prompt(skill, plan_summary)
+        prompt = _plan_review_prompt(skill)
         temp = _advisor_temperature(
             skill.temperature_rank,
             total,
@@ -666,6 +687,7 @@ async def review_plan(
         seed = _advisor_seed(skill.seed_offset, plan_id)
         result = await llm.complete_with_usage(
             prompt,
+            system_prompt=system,
             temperature=temp,
             seed=seed,
             model=skill.model or None,
@@ -692,27 +714,32 @@ async def review_plan(
 # ---------------------------------------------------------------------------
 
 
-def _decision_gate_prompt(
+def _decision_gate_system_prompt(
     plan_data: dict[str, Any],
     advisor_reviews: dict[str, str],
 ) -> str:
-    """Build the prompt for the Business+Architect decision gate."""
-    skill_text = discover_decision_gate_skill()
-    plan_summary = _format_plan_for_review(plan_data)
+    """Build the shared system prompt for the decision gate.
 
+    Contains the plan summary and advisor reviews -- large, stable
+    content that benefits from caching.
+    """
+    plan_summary = _format_plan_for_review(plan_data)
     reviews_section = "\n\n".join(f"**{name}:**\n{text}" for name, text in advisor_reviews.items())
+    return (
+        f"## Plan Under Review\n\n{plan_summary}\n\n---\n\n## Advisor Reviews\n\n{reviews_section}"
+    )
+
+
+def _decision_gate_prompt() -> str:
+    """Build the user prompt for the Business+Architect decision gate."""
+    skill_text = discover_decision_gate_skill()
 
     parts = []
     if skill_text:
         parts.append(f"{skill_text}\n\n---\n")
 
     parts.append(
-        "## Plan Under Review\n\n"
-        f"{plan_summary}\n\n---\n\n"
-        "## Advisor Reviews\n\n"
-        f"{reviews_section}\n\n---\n\n"
-        "Make your decision. Return valid JSON only. No commentary "
-        "outside the JSON block."
+        "Make your decision. Return valid JSON only. No commentary outside the JSON block."
     )
     return "\n".join(parts)
 
@@ -732,8 +759,11 @@ async def decide_changes(
     gate_model = get_skill_model("decision_gate") or None
     stage_usage = TokenUsage()
 
-    prompt = _decision_gate_prompt(plan_data, advisor_reviews)
-    result = await llm.complete_with_usage(prompt, temperature=0.7, model=gate_model)
+    system = _decision_gate_system_prompt(plan_data, advisor_reviews)
+    prompt = _decision_gate_prompt()
+    result = await llm.complete_with_usage(
+        prompt, system_prompt=system, temperature=0.7, model=gate_model
+    )
     raw_response = result.text
     stage_usage += result.usage
 
