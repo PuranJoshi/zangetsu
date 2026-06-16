@@ -608,7 +608,7 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
         from code_council.advisors import discover_advisor_skills, run_advisors
         from code_council.context import ProjectContext
         from code_council.framer import FramedRequirement
-        from code_council.synthesizer import synthesize_plan
+        from code_council.synthesizer import analyze_conflicts, synthesize_plan
 
         plan_id = req.plan_id
         change_description = req.change_description
@@ -675,7 +675,23 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
 
         advisor_duration = round(time.monotonic() - t0, 3)
 
-        # Synthesis phase
+        # Analysis phase (Pass 1: conflict resolution)
+        yield _sse_event("analysis", "started", {})
+
+        try:
+            conflict_analysis = await analyze_conflicts(
+                change_description=change_description,
+                advisor_responses=advisor_responses,
+                context=ctx,
+                llm=llm,
+            )
+        except Exception as exc:
+            yield _sse_event("session", "error", {"message": f"Analysis error: {exc}"})
+            return
+
+        yield _sse_event("analysis", "completed", {})
+
+        # Synthesis phase (Pass 2: structured plan generation)
         yield _sse_event("synthesis", "started", {})
 
         try:
@@ -685,6 +701,7 @@ async def council_stream(req: CouncilStreamRequest) -> StreamingResponse:
                 context=ctx,
                 plan_id=plan_id,
                 llm=llm,
+                conflict_analysis=conflict_analysis,
             )
         except Exception as exc:
             yield _sse_event("session", "error", {"message": f"Synthesis error: {exc}"})
@@ -858,7 +875,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
     async def _generate():
         from code_council.advisors import discover_advisor_skills, run_advisors
         from code_council.context import ProjectContext
-        from code_council.synthesizer import synthesize_plan
+        from code_council.synthesizer import analyze_conflicts, synthesize_plan
 
         plan_id = req.plan_id
         change_description = req.change_description
@@ -948,7 +965,29 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 },
             )
 
-        # Re-synthesize
+        # Analysis phase (Pass 1: conflict resolution)
+        yield _sse_event("analysis", "started", {})
+
+        try:
+            conflict_analysis = await analyze_conflicts(
+                change_description=change_description,
+                advisor_responses=responses,
+                context=ctx,
+                llm=llm,
+            )
+        except Exception as exc:
+            yield _sse_event(
+                "session",
+                "error",
+                {
+                    "message": f"Analysis error: {exc}",
+                },
+            )
+            return
+
+        yield _sse_event("analysis", "completed", {})
+
+        # Re-synthesize (Pass 2: structured plan generation)
         yield _sse_event("synthesis", "started", {})
 
         try:
@@ -958,6 +997,7 @@ async def council_review(req: ReviewActionRequest) -> StreamingResponse:
                 context=ctx,
                 plan_id=plan_id,
                 llm=llm,
+                conflict_analysis=conflict_analysis,
             )
         except Exception as exc:
             yield _sse_event(
@@ -1169,7 +1209,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
         from code_council.advisors import discover_advisor_skills, run_advisors
         from code_council.context import ProjectContext
         from code_council.framer import FramedRequirement
-        from code_council.synthesizer import synthesize_plan
+        from code_council.synthesizer import analyze_conflicts, synthesize_plan
 
         plan_id = req.plan_id
         change_description = req.change_description
@@ -1247,7 +1287,29 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 },
             )
 
-        # Re-synthesize
+        # Analysis phase (Pass 1: conflict resolution)
+        yield _sse_event("analysis", "started", {})
+
+        try:
+            conflict_analysis = await analyze_conflicts(
+                change_description=change_description,
+                advisor_responses=responses,
+                context=ctx,
+                llm=llm,
+            )
+        except Exception as exc:
+            yield _sse_event(
+                "session",
+                "error",
+                {
+                    "message": f"Analysis error: {exc}",
+                },
+            )
+            return
+
+        yield _sse_event("analysis", "completed", {})
+
+        # Re-synthesize (Pass 2: structured plan generation)
         yield _sse_event("synthesis", "started", {})
 
         try:
@@ -1257,6 +1319,7 @@ async def apply_council_feedback(req: CouncilApplyRequest) -> StreamingResponse:
                 context=ctx,
                 plan_id=plan_id,
                 llm=llm,
+                conflict_analysis=conflict_analysis,
             )
         except Exception as exc:
             yield _sse_event(

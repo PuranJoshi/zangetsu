@@ -143,8 +143,13 @@ Phase 2  │  PROJECT CONTEXT │  Scan local, upload AI-generated JSON, or skip
     │  └────────┬─────────┘              │
     │           ▼                         │
     │  ┌──────────────────┐              │
-    │  │   SYNTHESIZING   │  Merges all  │
-    │  │ (synthesizer.py) │  into plan   │
+    │  │    ANALYZING     │  Pass 1:     │
+    │  │ (synthesizer.py) │  conflicts   │
+    │  └────────┬─────────┘              │
+    │           ▼                         │
+    │  ┌──────────────────┐              │
+    │  │   SYNTHESIZING   │  Pass 2:     │
+    │  │ (synthesizer.py) │  plan JSON   │
     │  └────────┬─────────┘              │
     │           ▼                         │
     │  ┌──────────────────┐              │
@@ -348,9 +353,19 @@ Advisor skill registry, parallel execution engine, and council review.
   recommendations and decides ACCEPT/DEFER/DROP for each
 - `discover_decision_gate_skill()` -- loads the decision gate skill from skills/
 
-### `synthesizer.py` (219 lines)
-Plan synthesis -- Phase 4. Takes all advisor responses and produces a single
-`ChangePlan` with: plan_id, title, summary, affected files, ordered
+### `synthesizer.py`
+Two-pass plan synthesis -- Phase 4.
+
+- **Pass 1 (conflict analysis):** `analyze_conflicts()` reads all advisor
+  outputs and produces a structured markdown document identifying
+  agreements, conflicts (with resolutions), critical blockers, and emergent
+  insights. Uses the `synthesizer_analysis.md` skill prompt.
+- **Pass 2 (plan generation):** `synthesize_plan()` receives the conflict
+  analysis plus the raw advisor outputs and produces a structured
+  `ChangePlan` JSON. The conflict analysis gives the synthesizer
+  pre-computed reasoning so it can focus on structured output.
+
+Output: `ChangePlan` with plan_id, title, summary, affected files, ordered
 implementation steps, notes from each perspective, acceptance criteria,
 effort estimate (S/M/L/XL), and risk level (LOW/MEDIUM/HIGH).
 
@@ -419,7 +434,8 @@ The body contains the system prompt for that advisor.
 | `architect.md` | advisor | 4 | Module boundaries, coupling, existing patterns |
 | `risk.md` | advisor | 5 | Breaking changes, backward compat, rollback |
 | `framer.md` | framer | -- | Work classification, acceptance criteria |
-| `synthesizer.md` | synthesizer | -- | Conflict resolution, merged actionable plan, enforces self-documenting code, test pyramid, coverage |
+| `synthesizer_analysis.md` | synthesizer_analysis | -- | Pass 1: conflict analysis -- identifies agreements, conflicts, resolutions, emergent insights |
+| `synthesizer.md` | synthesizer | -- | Pass 2: merged actionable plan from pre-computed analysis, enforces self-documenting code, test pyramid, coverage |
 | `decision_gate.md` | decision_gate | -- | Business+Architect decision on advisor plan review recommendations |
 
 Adding a new advisor = dropping a new `.md` file in `skills/` with the correct

@@ -270,6 +270,36 @@ def discover_synthesizer_skill(
     return ""
 
 
+def discover_analysis_skill(
+    skills_dir: Path | None = None,
+) -> str:
+    """Load the conflict analysis skill (type: synthesizer_analysis).
+
+    Returns the Markdown body of the first enabled synthesizer_analysis
+    file, or an empty string if none found.  Used by the two-pass
+    synthesis pipeline as the Pass 1 prompt.
+    """
+    skills_dir = skills_dir or _SKILLS_DIR
+    if not skills_dir.is_dir():
+        return ""
+
+    for path in sorted(skills_dir.glob("*.md")):
+        try:
+            text = path.read_text()
+        except OSError:
+            continue
+
+        frontmatter, body = _parse_frontmatter(text)
+        if (
+            frontmatter.get("type") == "synthesizer_analysis"
+            and frontmatter.get("enabled", True)
+        ):
+            return body
+
+    logger.warning("No synthesizer_analysis skill found in %s", skills_dir)
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Diversity controls
 # ---------------------------------------------------------------------------

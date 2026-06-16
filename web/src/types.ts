@@ -8,6 +8,7 @@ export type SessionStage =
   | "confirming"
   | "scanning"
   | "advising"
+  | "analyzing"    // Pass 1: conflict analysis before synthesis
   | "synthesizing"
   | "reviewing"    // re-advise in progress (user stays on plan view)
   | "completed"

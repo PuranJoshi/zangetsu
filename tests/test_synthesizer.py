@@ -12,6 +12,7 @@ import pytest
 from code_council.synthesizer import (
     ChangePlan,
     _extract_json,
+    analyze_conflicts,
     synthesize_plan,
 )
 
@@ -67,3 +68,116 @@ async def test_synthesize_preserves_advisor_responses(fake_llm, fake_context) ->
         llm=fake_llm,
     )
     assert plan.raw_advisor_responses == responses
+
+
+# ---------------------------------------------------------------------------
+# Two-pass synthesis tests
+# ---------------------------------------------------------------------------
+
+SAMPLE_ADVISOR_RESPONSES = {
+    "Architect Advisor": "Fits well.",
+    "Security Advisor": "No issues.",
+    "Quality Advisor": "Add tests.",
+    "Risk Advisor": "Low risk.",
+    "Executor Advisor": "Start with main.py.",
+    "Business Advisor": "High value.",
+}
+
+
+@pytest.mark.asyncio
+async def test_analyze_conflicts_returns_markdown(fake_llm, fake_context) -> None:
+    """Pass 1 should return a markdown conflict analysis, not JSON."""
+    analysis = await analyze_conflicts(
+        change_description="Add a feature",
+        advisor_responses=SAMPLE_ADVISOR_RESPONSES,
+        context=fake_context,
+        llm=fake_llm,
+    )
+    assert isinstance(analysis, str)
+    assert "Advisor Position Summary" in analysis
+    assert len(analysis) > 0
+
+
+@pytest.mark.asyncio
+async def test_analyze_conflicts_prompt_contains_advisor_names(
+    fake_llm, fake_context
+) -> None:
+    """The analysis prompt should include all advisor names."""
+    await analyze_conflicts(
+        change_description="Add a feature",
+        advisor_responses=SAMPLE_ADVISOR_RESPONSES,
+        context=fake_context,
+        llm=fake_llm,
+    )
+    # FakeLLM records the prompt
+    analysis_prompt = fake_llm.prompts[-1]
+    for name in SAMPLE_ADVISOR_RESPONSES:
+        assert name in analysis_prompt
+
+
+@pytest.mark.asyncio
+async def test_two_pass_synthesis_makes_two_llm_calls(
+    fake_llm, fake_context
+) -> None:
+    """Full two-pass flow should make exactly 2 LLM calls."""
+    initial_count = fake_llm.call_count
+
+    analysis = await analyze_conflicts(
+        change_description="Add a feature",
+        advisor_responses=SAMPLE_ADVISOR_RESPONSES,
+        context=fake_context,
+        llm=fake_llm,
+    )
+    plan = await synthesize_plan(
+        change_description="Add a feature",
+        advisor_responses=SAMPLE_ADVISOR_RESPONSES,
+        context=fake_context,
+        plan_id="two-pass-test",
+        llm=fake_llm,
+        conflict_analysis=analysis,
+    )
+    assert fake_llm.call_count - initial_count == 2
+    assert isinstance(plan, ChangePlan)
+
+
+@pytest.mark.asyncio
+async def test_synthesis_prompt_contains_conflict_analysis(
+    fake_llm, fake_context
+) -> None:
+    """When conflict_analysis is provided, it should appear in the synthesis prompt."""
+    analysis = await analyze_conflicts(
+        change_description="Add a feature",
+        advisor_responses=SAMPLE_ADVISOR_RESPONSES,
+        context=fake_context,
+        llm=fake_llm,
+    )
+    await synthesize_plan(
+        change_description="Add a feature",
+        advisor_responses=SAMPLE_ADVISOR_RESPONSES,
+        context=fake_context,
+        plan_id="analysis-in-prompt-test",
+        llm=fake_llm,
+        conflict_analysis=analysis,
+    )
+    # The synthesis prompt is the last one recorded
+    synthesis_prompt = fake_llm.prompts[-1]
+    assert "CONFLICT ANALYSIS" in synthesis_prompt
+    assert "Advisor Position Summary" in synthesis_prompt
+
+
+@pytest.mark.asyncio
+async def test_synthesize_without_analysis_still_works(
+    fake_llm, fake_context
+) -> None:
+    """Backward compatibility: synthesize_plan without conflict_analysis."""
+    plan = await synthesize_plan(
+        change_description="Add a feature",
+        advisor_responses=SAMPLE_ADVISOR_RESPONSES,
+        context=fake_context,
+        plan_id="no-analysis-test",
+        llm=fake_llm,
+    )
+    assert isinstance(plan, ChangePlan)
+    # Should not contain the analysis section
+    synthesis_prompt = fake_llm.prompts[-1]
+    assert "CONFLICT ANALYSIS" not in synthesis_prompt

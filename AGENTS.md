@@ -44,9 +44,12 @@ bankai "Want to build a cash deposit feature"
    - Architect (structure, patterns, coupling)
    - Risk (what could break, rollback, blast radius)
 
-4. **Synthesizing** -- A synthesizer merges all advisor outputs into a single
-   structured plan with implementation steps, affected files, acceptance
-   criteria, risk level, and effort estimate.
+4. **Synthesizing** (two-pass) -- First, a conflict analyst reads all advisor
+   outputs and produces a structured analysis of agreements, conflicts
+   (with resolutions), and emergent insights. Then the plan synthesizer
+   uses that analysis to produce a single structured plan with
+   implementation steps, affected files, acceptance criteria, risk level,
+   and effort estimate.
 
 5. **Council Review** (optional) -- After synthesis, all advisors review
    the plan and return PROCEED or prioritised recommendations. Business &
@@ -102,6 +105,7 @@ model override. Adding a new advisor = dropping a new `.md` file.
 | `business.md` | advisor | (configurable) |
 | `architect.md` | advisor | (configurable) |
 | `risk.md` | advisor | (default) |
+| `synthesizer_analysis.md` | synthesizer_analysis | (default) |
 | `synthesizer.md` | synthesizer | (default) |
 | `decision_gate.md` | decision_gate | (default) |
 | `framer.md` | framer | (default) |

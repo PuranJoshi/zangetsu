@@ -284,7 +284,7 @@ async def _run_pipeline(
     from code_council.llm import get_llm
     from code_council.state import PlanState, PlanStatus
     from code_council.storage import save_plan
-    from code_council.synthesizer import synthesize_plan
+    from code_council.synthesizer import analyze_conflicts, synthesize_plan
     from code_council.transcript import (
         append_framer_message,
         init_transcript,
@@ -541,12 +541,21 @@ async def _run_pipeline(
         state.transition(PlanStatus.DRAFTING)
 
         typer.echo(f"\nRe-synthesizing from {len(advisor_responses)} saved advisor response(s)...")
+        typer.echo("  Analyzing advisor outputs...")
+        conflict_analysis = await analyze_conflicts(
+            change_description=description,
+            advisor_responses=advisor_responses,
+            context=context,
+            llm=llm,
+        )
+        typer.echo("  Generating plan...")
         plan = await synthesize_plan(
             change_description=description,
             advisor_responses=advisor_responses,
             context=context,
             plan_id=plan_id,
             llm=llm,
+            conflict_analysis=conflict_analysis,
         )
 
         state.transition(PlanStatus.PROPOSED)
@@ -589,12 +598,21 @@ async def _run_pipeline(
 
             if choice in ("r", "re-synthesize"):
                 typer.echo("\nRe-synthesizing...")
+                typer.echo("  Analyzing advisor outputs...")
+                conflict_analysis = await analyze_conflicts(
+                    change_description=description,
+                    advisor_responses=advisor_responses,
+                    context=context,
+                    llm=llm,
+                )
+                typer.echo("  Generating plan...")
                 plan = await synthesize_plan(
                     change_description=description,
                     advisor_responses=advisor_responses,
                     context=context,
                     plan_id=plan_id,
                     llm=llm,
+                    conflict_analysis=conflict_analysis,
                 )
                 typer.echo(_format_plan(plan))
                 continue
@@ -874,7 +892,14 @@ async def _run_pipeline(
                 f"  {len(advisor_responses)} advisors completed in {timing['duration']:.1f}s"
             )
 
-            typer.echo("\nSynthesizing plan...")
+            typer.echo("\nAnalyzing advisor outputs...")
+            conflict_analysis = await analyze_conflicts(
+                change_description=description,
+                advisor_responses=advisor_responses,
+                context=context,
+                llm=llm,
+            )
+            typer.echo("Generating plan...")
             plan = await synthesize_plan(
                 change_description=description,
                 advisor_responses=advisor_responses,
@@ -882,6 +907,7 @@ async def _run_pipeline(
                 plan_id=plan_id,
                 llm=llm,
                 negotiation_round=state.negotiation_round,
+                conflict_analysis=conflict_analysis,
             )
 
             state.transition(PlanStatus.PROPOSED)

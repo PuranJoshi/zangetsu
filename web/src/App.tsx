@@ -502,6 +502,7 @@ export default function App() {
       case "scanning":
         return "scanning" as const
       case "advising":
+        if (council.session.stage === "analyzing") return "synthesizing" as const
         if (council.session.stage === "synthesizing") return "synthesizing" as const
         if (council.session.stage === "completed") return "completed" as const
         if (council.session.stage === "error") return "error" as const
@@ -528,7 +529,7 @@ export default function App() {
           className="text-sm font-semibold text-text-primary hover:text-accent
                      transition-colors shrink-0"
         >
-          Code Council
+          Zangetsu: AI Planning Council
         </button>
 
         {/* Pipeline tracker -- race track, same width as content panels */}
@@ -634,6 +635,7 @@ export default function App() {
                     advisorNames={council.session.advisorNames}
                     advisorResponses={council.session.advisorResponses}
                     isComplete={
+                      council.session.stage === "analyzing" ||
                       council.session.stage === "synthesizing" ||
                       council.session.stage === "completed"
                     }
@@ -699,8 +701,11 @@ export default function App() {
         } else if (phase === "done" && council.isRunning) {
           statusText = "Re-advising -- new plan incoming"
           colorClass = "text-amber-600 dark:text-amber-400 border-amber-500/20 bg-amber-500/5"
+        } else if (council.session.stage === "analyzing") {
+          statusText = "Analyzing advisor outputs..."
+          colorClass = "text-text-muted border-border bg-surface-secondary"
         } else if (council.session.stage === "synthesizing") {
-          statusText = "Synthesizing plan..."
+          statusText = "Generating plan..."
           colorClass = "text-text-muted border-border bg-surface-secondary"
         }
 

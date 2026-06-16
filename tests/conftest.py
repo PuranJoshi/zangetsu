@@ -87,6 +87,26 @@ class FakeLLM:
             }
         )
 
+        # Conflict analysis prompt (Pass 1) -- return canned markdown analysis
+        if "Conflict Analyst" in prompt or "conflict resolution document" in prompt:
+            return (
+                "## Advisor Position Summary\n\n"
+                "- **Executor:** Start with main.py, add tests. Effort: S.\n"
+                "- **Security:** No critical issues.\n"
+                "- **Quality:** Add unit tests, use intent-revealing names.\n"
+                "- **Business:** High value, well-scoped.\n"
+                "- **Architect:** Fits existing patterns, no coupling concerns.\n"
+                "- **Risk:** Low risk, self-contained change.\n\n"
+                "## Points of Agreement\n\n"
+                "All advisors agree the change is low-risk and well-scoped.\n\n"
+                "## Conflicts\n\n"
+                "No significant conflicts identified.\n\n"
+                "## Critical Blockers\n\n"
+                "None.\n\n"
+                "## Emergent Insights\n\n"
+                "None -- advisors are aligned on this straightforward change."
+            )
+
         # Synthesizer prompt -- return valid JSON plan
         if "Plan Synthesizer" in prompt or "implementation_steps" in prompt:
             return """```json

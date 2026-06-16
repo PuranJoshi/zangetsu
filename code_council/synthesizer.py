@@ -21,7 +21,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
-from code_council.advisors import discover_synthesizer_skill
+from code_council.advisors import discover_analysis_skill, discover_synthesizer_skill
 from code_council.context import ProjectContext
 
 logger = logging.getLogger(__name__)
@@ -139,13 +139,18 @@ def _extract_json(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _synthesizer_prompt(
+def _analysis_prompt(
     change_description: str,
     advisor_responses: dict[str, str],
     context: ProjectContext,
 ) -> str:
-    """Build the prompt for the plan synthesizer."""
-    skill_text = discover_synthesizer_skill()
+    """Build the prompt for Pass 1: conflict analysis.
+
+    This prompt asks the LLM to read all advisor outputs, identify
+    agreements and conflicts, and produce a structured markdown
+    document resolving disagreements -- before the plan is generated.
+    """
+    skill_text = discover_analysis_skill()
 
     advisor_section = "\n\n".join(
         f"**{name}:**\n{text}" for name, text in advisor_responses.items()
@@ -162,6 +167,60 @@ def _synthesizer_prompt(
         parts.append(f"{skill_text}\n\n---\n")
 
     parts.append(
+        "You are the Conflict Analyst for a Code Council. Your job is to "
+        "read all advisor analyses, identify where they agree and disagree, "
+        "and produce a structured conflict resolution document.\n\n"
+        f"**Project:** {context.project_path}\n"
+        f"**Stack:** {tech_summary}\n\n"
+        "The user wants to make this change:\n\n"
+        "---\n"
+        f"{change_description}\n"
+        "---\n\n"
+        f"ADVISOR ANALYSES:\n\n{advisor_section}\n\n"
+        "---\n\n"
+        "Produce the conflict analysis as structured markdown. "
+        "Do NOT produce JSON or implementation steps."
+    )
+    return "\n".join(parts)
+
+
+def _synthesizer_prompt(
+    change_description: str,
+    advisor_responses: dict[str, str],
+    context: ProjectContext,
+    conflict_analysis: str = "",
+) -> str:
+    """Build the prompt for the plan synthesizer.
+
+    When *conflict_analysis* is provided (two-pass mode), it is included
+    as a ``CONFLICT ANALYSIS`` section before the raw advisor outputs so
+    the synthesizer can use it as its primary reasoning input.
+    """
+    skill_text = discover_synthesizer_skill()
+
+    advisor_section = "\n\n".join(
+        f"**{name}:**\n{text}" for name, text in advisor_responses.items()
+    )
+
+    tech_summary = (
+        f"Languages: {', '.join(context.tech_stack.languages)}, "
+        f"Frameworks: {', '.join(context.tech_stack.frameworks)}, "
+        f"Tests: {context.test_patterns.test_framework}"
+    )
+
+    parts = []
+    if skill_text:
+        parts.append(f"{skill_text}\n\n---\n")
+
+    analysis_block = ""
+    if conflict_analysis:
+        analysis_block = (
+            "CONFLICT ANALYSIS (from Pass 1 -- use as primary reasoning input):\n\n"
+            f"{conflict_analysis}\n\n"
+            "---\n\n"
+        )
+
+    parts.append(
         "You are the Plan Synthesizer for a Code Council. Your job is to "
         "take the analyses from code advisors and produce a single, "
         "structured implementation plan.\n\n"
@@ -171,6 +230,7 @@ def _synthesizer_prompt(
         "---\n"
         f"{change_description}\n"
         "---\n\n"
+        f"{analysis_block}"
         f"ADVISOR ANALYSES:\n\n{advisor_section}\n\n"
         "---\n\n"
         "Produce the implementation plan as valid JSON:\n\n"
@@ -295,6 +355,24 @@ def _fix_depends_on(data: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
+async def analyze_conflicts(
+    change_description: str,
+    advisor_responses: dict[str, str],
+    context: ProjectContext,
+    llm: LLMClient,
+) -> str:
+    """Pass 1: Analyze advisor outputs and resolve conflicts.
+
+    Reads all advisor analyses and produces a structured markdown
+    document identifying agreements, conflicts, resolutions, and
+    emergent insights.  The returned text is fed into
+    ``synthesize_plan`` as the *conflict_analysis* parameter so the
+    plan synthesizer can focus on structured output.
+    """
+    prompt = _analysis_prompt(change_description, advisor_responses, context)
+    return await llm.complete(prompt)
+
+
 async def synthesize_plan(
     change_description: str,
     advisor_responses: dict[str, str],
@@ -302,13 +380,25 @@ async def synthesize_plan(
     plan_id: str,
     llm: LLMClient,
     negotiation_round: int = 0,
+    conflict_analysis: str = "",
 ) -> ChangePlan:
     """Synthesize a ChangePlan from advisor responses.
 
-    Calls the LLM with all advisor outputs and parses the structured
-    JSON response into a ChangePlan. Retries once if JSON is invalid.
+    Two-pass synthesis:
+
+    1. If *conflict_analysis* is provided, it is injected into the
+       synthesizer prompt so the LLM can use pre-computed reasoning
+       about advisor agreements, conflicts, and resolutions.
+    2. The LLM produces structured JSON matching the ``ChangePlan``
+       schema.  Retries once if JSON is invalid.
+
+    Callers should call ``analyze_conflicts`` first and pass the result
+    as *conflict_analysis*.  If omitted, the synthesizer falls back to
+    single-pass mode (backward-compatible).
     """
-    prompt = _synthesizer_prompt(change_description, advisor_responses, context)
+    prompt = _synthesizer_prompt(
+        change_description, advisor_responses, context, conflict_analysis
+    )
     raw_response = await llm.complete(prompt)
     json_text = _extract_json(raw_response)
 

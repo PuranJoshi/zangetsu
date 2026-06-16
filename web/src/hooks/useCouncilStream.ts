@@ -266,6 +266,20 @@ export function useCouncilStream(): UseCouncilStreamResult {
       return
     }
 
+    if (stage === "analysis" && status === "started") {
+      setSession((prev) => ({
+        ...prev,
+        // During a review, don't switch stages -- keep "reviewing"
+        stage: prev.stage === "reviewing" ? "reviewing" : "analyzing",
+      }))
+      return
+    }
+
+    if (stage === "analysis" && status === "completed") {
+      // Analysis done -- synthesis follows immediately, no stage change needed
+      return
+    }
+
     if (stage === "synthesis" && status === "started") {
       setSession((prev) => ({
         ...prev,

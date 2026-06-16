@@ -11,6 +11,7 @@ const STAGES: { key: SessionStage; label: string; icon: string }[] = [
   { key: "confirming", label: "Review", icon: "\u25C6" },      // diamond
   { key: "scanning", label: "Scan", icon: "\u25C6" },
   { key: "advising", label: "Advise", icon: "\u25C6" },
+  { key: "analyzing", label: "Analyze", icon: "\u25C6" },
   { key: "synthesizing", label: "Synth", icon: "\u25C6" },
   { key: "completed", label: "Finish", icon: "\u{1F3C1}" },   // flag
 ]
@@ -39,27 +40,47 @@ export function PipelineTracker({ currentStage, advisorsDone, advisorsTotal }: P
   const isError = currentStage === "error"
   const isDone = currentStage === "completed"
 
-  // Progress percentage along the track
-  const progress = isDone ? 100 : isError ? ((ci / total) * 100) : (((ci + 0.5) / total) * 100)
+  // Dot sits exactly on the current active checkpoint
+  const dotPosition = isDone ? 100 : (ci / total) * 100
+
+  // Determine segment colors: each segment connects STAGES[i] to STAGES[i+1]
+  // - Green: completed segments AND the segment leading into the active step
+  // - Gray: everything ahead of the active step
+  const segmentColors = STAGES.slice(0, -1).map((_, i) => {
+    const leftStatus = stageStatus(STAGES[i].key, currentStage)
+    const rightStatus = stageStatus(STAGES[i + 1].key, currentStage)
+    // Both endpoints done → green (completed segment)
+    if (leftStatus === "done" && rightStatus === "done") return "bg-green-500"
+    // Left done, right is active → green all the way to the active dot
+    if (leftStatus === "done" && rightStatus === "active") return "bg-green-500"
+    // Error: segments up to error point are red
+    if (isError && leftStatus === "done") return "bg-red-500"
+    // Everything else stays gray
+    return "bg-surface-tertiary"
+  })
 
   return (
     <div className="relative h-6">
-      {/* Track background */}
-      <div className="absolute left-0 right-0 top-[11px] h-[3px] rounded-full bg-surface-tertiary" />
+      {/* Per-segment track lines */}
+      {STAGES.slice(0, -1).map((_, i) => {
+        const leftPct = (i / total) * 100
+        const rightPct = ((i + 1) / total) * 100
+        const color = segmentColors[i]
 
-      {/* Filled track */}
-      <div
-        className={`absolute left-0 top-[11px] h-[3px] rounded-full transition-all duration-700 ease-out ${
-          isError ? "bg-red-500" : isDone ? "bg-green-500" : "bg-accent"
-        }`}
-        style={{ width: `${progress}%` }}
-      />
+        return (
+          <div
+            key={`seg-${i}`}
+            className={`absolute top-[11px] h-[3px] transition-colors duration-700 ease-out ${color}`}
+            style={{ left: `${leftPct}%`, width: `${rightPct - leftPct}%` }}
+          />
+        )
+      })}
 
-      {/* Animated car/dot on the progress front */}
+      {/* Animated dot sitting on the current active checkpoint */}
       {!isDone && !isError && (
         <div
           className="absolute top-[5px] w-4 h-4 -ml-2 transition-all duration-700 ease-out"
-          style={{ left: `${progress}%` }}
+          style={{ left: `${dotPosition}%` }}
         >
           <div className="w-4 h-4 rounded-full bg-accent shadow-[0_0_8px_rgba(99,102,241,0.5)]
                           flex items-center justify-center animate-pulse">
@@ -108,16 +129,6 @@ export function PipelineTracker({ currentStage, advisorsDone, advisorsTotal }: P
           </div>
         )
       })}
-
-      {/* Finish flag when done */}
-      {isDone && (
-        <div
-          className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
-          style={{ left: "100%" }}
-        >
-          <div className="w-[9px] h-[9px] rounded-full bg-green-500 border-2 border-green-500 mt-[7px]" />
-        </div>
-      )}
     </div>
   )
 }
