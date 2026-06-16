@@ -163,3 +163,26 @@ def get_settings() -> Settings:
         creates a new instance each time, reading the current os.environ.
     """
     return Settings()
+
+
+def get_skill_model(skill_name: str) -> str:
+    """Look up a per-skill model override from environment variables.
+
+    Checks for ``CODE_COUNCIL_MODEL_<SKILL_NAME>`` (uppercase) in the
+    environment. Returns the value if set (non-empty), or empty string
+    if not found.
+
+    This covers ALL pipeline skills, not just advisors:
+        CODE_COUNCIL_MODEL_ARCHITECT=gpt-4o       -> architect advisor
+        CODE_COUNCIL_MODEL_FRAMER=gpt-4o-mini      -> framer
+        CODE_COUNCIL_MODEL_SYNTHESIZER=gpt-4o      -> plan synthesizer
+        CODE_COUNCIL_MODEL_DECISION_GATE=gpt-4o    -> decision gate
+        CODE_COUNCIL_MODEL_HUMANIZER=gpt-4o-mini   -> markdown humaniser
+        (not set)                                   -> uses CODE_COUNCIL_MODEL
+
+    This is called during skill discovery and at each pipeline stage
+    to allow users to configure per-skill models via environment
+    variables or ``~/.code-council/env`` without editing skill files.
+    """
+    env_key = f"CODE_COUNCIL_MODEL_{skill_name.upper()}"
+    return os.environ.get(env_key, "")

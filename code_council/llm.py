@@ -100,6 +100,7 @@ class LLMClient(Protocol):
         *,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> str: ...
 
     async def chat(
@@ -108,6 +109,7 @@ class LLMClient(Protocol):
         *,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> str: ...
 
 
@@ -140,10 +142,16 @@ class OpenAICompatibleLLM:
         timeout: float | None = None,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> LLMResult:
         """Low-level API call with retry logic.
 
         Returns an LLMResult containing the response text and token usage.
+
+        Args:
+            model: Optional model override. If provided (non-empty string),
+                uses this model instead of the global default from settings.
+                This enables per-advisor model routing.
 
         Python lesson: asyncio.wait_for()
             Wraps a coroutine with a timeout. If the API call takes
@@ -151,6 +159,9 @@ class OpenAICompatibleLLM:
             Without this, a hung API call would block forever.
         """
         timeout = timeout or float(self._settings.code_council_agent_timeout_seconds)
+
+        # Use the per-call model override if provided, else global default.
+        effective_model = model if model else self._settings.code_council_model
 
         extra_kwargs: dict[str, Any] = {}
         if temperature is not None:
@@ -163,7 +174,7 @@ class OpenAICompatibleLLM:
             try:
                 response = await asyncio.wait_for(
                     self._client.chat.completions.create(
-                        model=self._settings.code_council_model,
+                        model=effective_model,
                         messages=messages,  # type: ignore[arg-type]
                         **extra_kwargs,
                     ),
@@ -203,6 +214,7 @@ class OpenAICompatibleLLM:
         timeout: float | None = None,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> str:
         """Send a single prompt and return the assistant text."""
         result = await self._call_api(
@@ -211,6 +223,7 @@ class OpenAICompatibleLLM:
             timeout=timeout,
             temperature=temperature,
             seed=seed,
+            model=model,
         )
         return result.text
 
@@ -222,6 +235,7 @@ class OpenAICompatibleLLM:
         timeout: float | None = None,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> str:
         """Send a multi-turn conversation and return the assistant reply."""
         result = await self._call_api(
@@ -230,6 +244,7 @@ class OpenAICompatibleLLM:
             timeout=timeout,
             temperature=temperature,
             seed=seed,
+            model=model,
         )
         return result.text
 
@@ -243,6 +258,7 @@ class OpenAICompatibleLLM:
         timeout: float | None = None,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> LLMResult:
         """Like complete() but returns an LLMResult with token usage."""
         return await self._call_api(
@@ -251,6 +267,7 @@ class OpenAICompatibleLLM:
             timeout=timeout,
             temperature=temperature,
             seed=seed,
+            model=model,
         )
 
     async def chat_with_usage(
@@ -261,6 +278,7 @@ class OpenAICompatibleLLM:
         timeout: float | None = None,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> LLMResult:
         """Like chat() but returns an LLMResult with token usage."""
         return await self._call_api(
@@ -269,6 +287,7 @@ class OpenAICompatibleLLM:
             timeout=timeout,
             temperature=temperature,
             seed=seed,
+            model=model,
         )
 
 

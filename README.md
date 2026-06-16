@@ -27,13 +27,10 @@ source .venv/bin/activate
 # 3. Install in development mode
 pip install -e ".[dev]"
 
-# 4. Configure credentials
+# 4. Configure credentials (copy the example and fill in your values)
 mkdir -p ~/.code-council
-cat > ~/.code-council/env << 'EOF'
-LLM_API_KEY=your-api-key
-LLM_BASE_URL=https://api.openai.com/v1
-CODE_COUNCIL_MODEL=your-model-identifier
-EOF
+cp env.example ~/.code-council/env
+# Edit ~/.code-council/env with your API key and model
 ```
 
 Alternatively, export the variables directly in your shell:
@@ -102,13 +99,64 @@ has YAML frontmatter declaring the advisor's role, temperature rank, and seed
 offset. Adding a new advisor = dropping a new `.md` file. No code changes
 needed.
 
+## Per-Skill Model Routing
+
+Every pipeline stage can use a different LLM model. By default all stages use
+`CODE_COUNCIL_MODEL`. Only override when you have a specific reason --
+reasoning-heavy models cost significantly more and run slower.
+
+Model resolution order (highest priority first):
+1. Environment variable `CODE_COUNCIL_MODEL_<SKILL_NAME>`
+2. YAML frontmatter `model:` field in the skill `.md` file
+3. Global `CODE_COUNCIL_MODEL` default
+
+### All configurable skill models
+
+| Env Var | Pipeline Stage | Calls per plan |
+|---|---|---|
+| `CODE_COUNCIL_MODEL` | Global default for all stages | -- |
+| `CODE_COUNCIL_MODEL_FRAMER` | Requirements framing | 1 + clarification rounds |
+| `CODE_COUNCIL_MODEL_EXECUTOR` | Executor advisor | 1 |
+| `CODE_COUNCIL_MODEL_SECURITY` | Security advisor | 1 |
+| `CODE_COUNCIL_MODEL_QUALITY` | Quality advisor | 1 |
+| `CODE_COUNCIL_MODEL_BUSINESS` | Business advisor | 1 |
+| `CODE_COUNCIL_MODEL_ARCHITECT` | Architect advisor | 1 |
+| `CODE_COUNCIL_MODEL_RISK` | Risk advisor | 1 |
+| `CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS` | Conflict analysis (Pass 1) | 1 |
+| `CODE_COUNCIL_MODEL_SYNTHESIZER` | Plan synthesis (Pass 2) | 1 |
+| `CODE_COUNCIL_MODEL_DECISION_GATE` | Council review decision gate | 1 |
+| `CODE_COUNCIL_MODEL_HUMANIZER` | Markdown export humaniser | 1 |
+
+Example `~/.code-council/env` (all skills set to cheap defaults):
+
+```bash
+LLM_API_KEY=your-api-key-here
+LLM_BASE_URL=https://api.openai.com/v1
+
+CODE_COUNCIL_MODEL=gpt-4o-mini
+CODE_COUNCIL_MODEL_FRAMER=gpt-4o-mini
+CODE_COUNCIL_MODEL_EXECUTOR=gpt-4o-mini
+CODE_COUNCIL_MODEL_SECURITY=gpt-4o-mini
+CODE_COUNCIL_MODEL_QUALITY=gpt-4o-mini
+CODE_COUNCIL_MODEL_BUSINESS=gpt-4o-mini
+CODE_COUNCIL_MODEL_ARCHITECT=gpt-4o-mini
+CODE_COUNCIL_MODEL_RISK=gpt-4o-mini
+CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS=gpt-4o-mini
+CODE_COUNCIL_MODEL_SYNTHESIZER=gpt-4o-mini
+CODE_COUNCIL_MODEL_DECISION_GATE=gpt-4o-mini
+CODE_COUNCIL_MODEL_HUMANIZER=gpt-4o-mini
+```
+
+A ready-to-copy version of this is available in `env.example`.
+
 ## Environment Variables
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `LLM_API_KEY` | Yes | -- | API key for the LLM endpoint |
 | `LLM_BASE_URL` | Yes | -- | Base URL of the OpenAI-compatible API |
-| `CODE_COUNCIL_MODEL` | No | `REPLACE_ME_WITH_YOUR_MODEL` | Model identifier |
+| `CODE_COUNCIL_MODEL` | No | `REPLACE_ME_WITH_YOUR_MODEL` | Default model identifier |
+| `CODE_COUNCIL_MODEL_<SKILL>` | No | -- | Per-skill model override (see `env.example`) |
 | `CODE_COUNCIL_AGENT_TIMEOUT_SECONDS` | No | `120` | Per-call timeout |
 | `CODE_COUNCIL_ADVISOR_TEMPERATURE_SPREAD` | No | `0.4` | Temperature range |
 | `CODE_COUNCIL_MAX_NEGOTIATION_ROUNDS` | No | `3` | Max negotiation rounds |

@@ -68,6 +68,7 @@ class FakeLLM:
         *,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> str:
         """Return a canned response based on prompt content.
 
@@ -84,6 +85,7 @@ class FakeLLM:
                 "prompt_preview": prompt[:80],
                 "temperature": temperature,
                 "seed": seed,
+                "model": model,
             }
         )
 
@@ -182,6 +184,7 @@ class FakeLLM:
         *,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> str:
         self.call_count += 1
         return "Chat response."
@@ -194,9 +197,12 @@ class FakeLLM:
         *,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> LLMResult:
         """Like complete() but returns token usage metadata too."""
-        text = await self.complete(prompt, temperature=temperature, seed=seed)
+        text = await self.complete(
+            prompt, temperature=temperature, seed=seed, model=model,
+        )
         return LLMResult(
             text=text,
             usage=TokenUsage(
@@ -212,8 +218,11 @@ class FakeLLM:
         *,
         temperature: float | None = None,
         seed: int | None = None,
+        model: str | None = None,
     ) -> LLMResult:
-        text = await self.chat(messages, temperature=temperature, seed=seed)
+        text = await self.chat(
+            messages, temperature=temperature, seed=seed, model=model,
+        )
         return LLMResult(
             text=text,
             usage=TokenUsage(

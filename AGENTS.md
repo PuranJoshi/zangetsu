@@ -18,7 +18,7 @@
 > **Verification (run after every change):**
 > ```
 > .venv/bin/python -m ruff check code_council/   # lint (rules: E, F, I, W)
-> .venv/bin/python -m pytest tests/ -x --tb=short # tests (231+ tests, no API calls)
+> .venv/bin/python -m pytest tests/ -x --tb=short # tests (253+ tests, no API calls)
 > cd web && npx tsc --noEmit                       # frontend type check
 > ```
 > All three must pass before considering a change complete.
@@ -107,27 +107,40 @@ Advisors are defined by markdown files in `code_council/skills/`. Each file
 has YAML frontmatter declaring the advisor's role, temperature, and optional
 model override. Adding a new advisor = dropping a new `.md` file.
 
-| Skill | Type | Model Override |
+All skills support per-skill model routing via `CODE_COUNCIL_MODEL_<SKILL_NAME>`.
+
+| Skill | Type | Env Var Override |
 |---|---|---|
-| `executor.md` | advisor | (default) |
-| `security.md` | advisor | (default) |
-| `quality.md` | advisor | (default) |
-| `business.md` | advisor | (configurable) |
-| `architect.md` | advisor | (configurable) |
-| `risk.md` | advisor | (default) |
-| `synthesizer_analysis.md` | synthesizer_analysis | (default) |
-| `synthesizer.md` | synthesizer | (default) |
-| `decision_gate.md` | decision_gate | (default) |
-| `framer.md` | framer | (default) |
+| `executor.md` | advisor | `CODE_COUNCIL_MODEL_EXECUTOR` |
+| `security.md` | advisor | `CODE_COUNCIL_MODEL_SECURITY` |
+| `quality.md` | advisor | `CODE_COUNCIL_MODEL_QUALITY` |
+| `business.md` | advisor | `CODE_COUNCIL_MODEL_BUSINESS` |
+| `architect.md` | advisor | `CODE_COUNCIL_MODEL_ARCHITECT` |
+| `risk.md` | advisor | `CODE_COUNCIL_MODEL_RISK` |
+| `framer.md` | framer | `CODE_COUNCIL_MODEL_FRAMER` |
+| `synthesizer_analysis.md` | synthesizer_analysis | `CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS` |
+| `synthesizer.md` | synthesizer | `CODE_COUNCIL_MODEL_SYNTHESIZER` |
+| `decision_gate.md` | decision_gate | `CODE_COUNCIL_MODEL_DECISION_GATE` |
+| `humaniser.md` | humaniser | `CODE_COUNCIL_MODEL_HUMANIZER` |
 
 ## Configuration
 
-Set these environment variables (or put them in `~/.code-council/env`):
+Copy `env.example` to `~/.code-council/env` and fill in your values:
+
+```
+cp env.example ~/.code-council/env
+```
+
+Or set environment variables directly:
 
 ```
 LLM_API_KEY=your-api-key
 LLM_BASE_URL=https://api.openai.com/v1
-CODE_COUNCIL_MODEL=your-default-model
+CODE_COUNCIL_MODEL=gpt-4o-mini
+
+# Optional: per-skill overrides (only when you need a different model)
+CODE_COUNCIL_MODEL_ARCHITECT=gpt-4o
+CODE_COUNCIL_MODEL_SYNTHESIZER=gpt-4o
 ```
 
 ## Storage
