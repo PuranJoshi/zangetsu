@@ -54,18 +54,19 @@ body {
 }
 
 #root {
-  min-width: 1040px;  /* 240px sidebar + 800px content */
+  min-width: 900px;  /* 200px sidebar min + 700px content */
   margin: 0 auto;
-  min-height: 100dvh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
 
-/* Plans sidebar */
+/* Plans sidebar -- sized to content, clamped between min and max */
 .plan-sidebar {
-  width: 240px;
-  min-width: 240px;
-  max-width: 240px;
+  width: fit-content;
+  min-width: 200px;
+  max-width: 280px;
+  flex-shrink: 0;
 }
 
 /* Markdown content inside advisor cards and plan sections */

@@ -7,6 +7,9 @@ import type {
   CouncilFeedbackState,
   FramedRequirement,
   ProjectContext,
+  StageTokenUsage,
+  TokenUsageData,
+  TokenUsageState,
 } from "../types"
 
 export interface UseCouncilFeedbackResult {
@@ -31,6 +34,7 @@ function initialState(): CouncilFeedbackState {
     advisorReviews: [],
     decision: null,
     error: null,
+    tokenUsage: null,
   }
 }
 
@@ -55,6 +59,7 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
         advisorReviews: [],
         decision: null,
         error: null,
+        tokenUsage: null,
       })
 
       try {
@@ -161,11 +166,47 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
     }
 
     if (stage === "feedback" && status === "decision") {
+      // Extract token_usage from the decision event if present
+      const tu = data?.token_usage as
+        | { stages: Record<string, TokenUsageData>; total: TokenUsageData }
+        | undefined
+      let feedbackTokenUsage: TokenUsageState | null = null
+      if (tu) {
+        feedbackTokenUsage = {
+          stages: Object.entries(tu.stages).map(
+            ([name, usage]) => ({ stage: name, usage }) as StageTokenUsage
+          ),
+          total: tu.total,
+        }
+      }
       setState((prev) => ({
         ...prev,
         stage: "completed" as CouncilFeedbackStage,
         decision: data?.decision as CouncilDecision,
+        tokenUsage: feedbackTokenUsage || prev.tokenUsage,
       }))
+      return
+    }
+
+    // token_usage events emitted by /council/feedback and /council/feedback/apply
+    if (stage === "token_usage" && status === "update") {
+      const stageName = data?.stage as string
+      const usage = data?.usage as TokenUsageData
+      const total = data?.total as TokenUsageData
+      if (stageName && usage && total) {
+        setState((prev) => {
+          const existing = prev.tokenUsage?.stages || []
+          const idx = existing.findIndex((s) => s.stage === stageName)
+          const updated =
+            idx >= 0
+              ? existing.map((s, i) => (i === idx ? { stage: stageName, usage } : s))
+              : [...existing, { stage: stageName, usage }]
+          return {
+            ...prev,
+            tokenUsage: { stages: updated, total },
+          }
+        })
+      }
       return
     }
   }
@@ -246,6 +287,10 @@ export function useCouncilFeedback(): UseCouncilFeedbackResult {
                 throw new Error(
                   (event.data?.message as string) || "Apply error"
                 )
+              }
+              // Forward token_usage events to feedback state
+              if (event.stage === "token_usage" && event.status === "update") {
+                handleEvent(event)
               }
             } catch (e) {
               if (e instanceof Error && e.message !== "Apply error") {

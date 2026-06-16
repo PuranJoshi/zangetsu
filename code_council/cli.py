@@ -279,7 +279,7 @@ async def _run_pipeline(
         read_approved_files,
     )
     from code_council.framer import FramedRequirement, frame_request
-    from code_council.llm import get_llm
+    from code_council.llm import TokenTracker, get_llm
     from code_council.state import PlanState, PlanStatus
     from code_council.storage import save_plan
     from code_council.synthesizer import analyze_conflicts, synthesize_plan
@@ -288,6 +288,8 @@ async def _run_pipeline(
         init_transcript,
         set_framed_question,
     )
+
+    tracker = TokenTracker()
 
     settings = get_settings()
 
@@ -373,19 +375,21 @@ async def _run_pipeline(
             if all_answers:
                 typer.echo(f"  Reconstructing framing from {len(all_answers)} Q&A pair(s)...")
                 clarification_text = "\n\n".join(all_answers)
-                framed = await frame_request(
+                framed, framing_usage = await frame_request(
                     change_description=description,
                     context_summary="",
                     llm=llm,
                     clarification_answers=clarification_text,
                 )
+                tracker.record("framing", framing_usage)
             else:
                 typer.echo("  No Q&A found -- re-framing from scratch...")
-                framed = await frame_request(
+                framed, framing_usage = await frame_request(
                     change_description=description,
                     context_summary="",
                     llm=llm,
                 )
+                tracker.record("framing", framing_usage)
             # Fall through to the confirmation gate (or clarification loop
             # if the re-framed result still needs clarification)
 
@@ -417,11 +421,13 @@ async def _run_pipeline(
         )
 
         typer.echo("\nFraming requirements...")
-        framed = await frame_request(
+        framed, framing_usage = await frame_request(
             change_description=description,
             context_summary="",  # no project context yet
             llm=llm,
         )
+        tracker.record("framing", framing_usage)
+        typer.echo(tracker.format_stage_line("framing"))
 
         # -- Interactive clarification loop ------------------------------------
         # The framer produces a BATCH of questions (typically 3-5). We ask
@@ -512,12 +518,14 @@ async def _run_pipeline(
             # ONE LLM call with all answers so far to re-evaluate
             clarification_text = "\n\n".join(all_answers)
             typer.echo("\nRe-evaluating requirements with your answers...")
-            framed = await frame_request(
+            framed, clarify_usage = await frame_request(
                 change_description=description,
                 context_summary="",
                 llm=llm,
                 clarification_answers=clarification_text,
             )
+            tracker.record("framing", clarify_usage)
+            typer.echo(tracker.format_stage_line("framing"))
 
     if _skip_to_synthesis:
         # ---------------------------------------------------------------
@@ -540,14 +548,17 @@ async def _run_pipeline(
 
         typer.echo(f"\nRe-synthesizing from {len(advisor_responses)} saved advisor response(s)...")
         typer.echo("  Analyzing advisor outputs...")
-        conflict_analysis = await analyze_conflicts(
+        conflict_analysis, analysis_usage = await analyze_conflicts(
             change_description=description,
             advisor_responses=advisor_responses,
             context=context,
             llm=llm,
         )
+        tracker.record("analysis", analysis_usage)
+        typer.echo(tracker.format_stage_line("analysis"))
+
         typer.echo("  Generating plan...")
-        plan = await synthesize_plan(
+        plan, synth_usage = await synthesize_plan(
             change_description=description,
             advisor_responses=advisor_responses,
             context=context,
@@ -555,6 +566,8 @@ async def _run_pipeline(
             llm=llm,
             conflict_analysis=conflict_analysis,
         )
+        tracker.record("synthesis", synth_usage)
+        typer.echo(tracker.format_stage_line("synthesis"))
 
         state.transition(PlanStatus.PROPOSED)
 
@@ -597,14 +610,17 @@ async def _run_pipeline(
             if choice in ("r", "re-synthesize"):
                 typer.echo("\nRe-synthesizing...")
                 typer.echo("  Analyzing advisor outputs...")
-                conflict_analysis = await analyze_conflicts(
+                conflict_analysis, analysis_usage = await analyze_conflicts(
                     change_description=description,
                     advisor_responses=advisor_responses,
                     context=context,
                     llm=llm,
                 )
+                tracker.record("analysis", analysis_usage)
+                typer.echo(tracker.format_stage_line("analysis"))
+
                 typer.echo("  Generating plan...")
-                plan = await synthesize_plan(
+                plan, synth_usage = await synthesize_plan(
                     change_description=description,
                     advisor_responses=advisor_responses,
                     context=context,
@@ -612,6 +628,8 @@ async def _run_pipeline(
                     llm=llm,
                     conflict_analysis=conflict_analysis,
                 )
+                tracker.record("synthesis", synth_usage)
+                typer.echo(tracker.format_stage_line("synthesis"))
                 typer.echo(_format_plan(plan))
                 continue
 
@@ -662,12 +680,14 @@ async def _run_pipeline(
             )
             clarification_text = "\n\n".join(all_answers)
             typer.echo("\nRe-framing with your corrections...")
-            framed = await frame_request(
+            framed, reframe_usage = await frame_request(
                 change_description=description,
                 context_summary="",
                 llm=llm,
                 clarification_answers=clarification_text,
             )
+            tracker.record("framing", reframe_usage)
+            typer.echo(tracker.format_stage_line("framing"))
 
         # Record the final framed requirement in the transcript
         framed_text = (
@@ -876,7 +896,7 @@ async def _run_pipeline(
             state.transition(PlanStatus.DRAFTING)
 
             typer.echo("\nRunning advisors...")
-            advisor_responses, advisor_params, timing = await run_advisors(
+            advisor_responses, advisor_params, timing, advisor_usage = await run_advisors(
                 change_description=description,
                 context=context,
                 llm=llm,
@@ -884,19 +904,24 @@ async def _run_pipeline(
                 temperature_spread=settings.code_council_advisor_temperature_spread,
                 negotiation_feedback=negotiation_feedback,
             )
+            tracker.record("advisors", advisor_usage)
             typer.echo(
                 f"  {len(advisor_responses)} advisors completed in {timing['duration']:.1f}s"
             )
+            typer.echo(tracker.format_stage_line("advisors"))
 
             typer.echo("\nAnalyzing advisor outputs...")
-            conflict_analysis = await analyze_conflicts(
+            conflict_analysis, analysis_usage = await analyze_conflicts(
                 change_description=description,
                 advisor_responses=advisor_responses,
                 context=context,
                 llm=llm,
             )
+            tracker.record("analysis", analysis_usage)
+            typer.echo(tracker.format_stage_line("analysis"))
+
             typer.echo("Generating plan...")
-            plan = await synthesize_plan(
+            plan, synth_usage = await synthesize_plan(
                 change_description=description,
                 advisor_responses=advisor_responses,
                 context=context,
@@ -905,6 +930,8 @@ async def _run_pipeline(
                 negotiation_round=state.negotiation_round,
                 conflict_analysis=conflict_analysis,
             )
+            tracker.record("synthesis", synth_usage)
+            typer.echo(tracker.format_stage_line("synthesis"))
 
             state.transition(PlanStatus.PROPOSED)
 
@@ -1012,12 +1039,14 @@ async def _run_pipeline(
                 all_answers.append(f"Q: (User correction during plan review)\nA: {correction}")
                 clarification_text = "\n\n".join(all_answers)
                 typer.echo("\nRe-framing with your corrections...")
-                framed = await frame_request(
+                framed, reframe_usage = await frame_request(
                     change_description=description,
                     context_summary="",
                     llm=llm,
                     clarification_answers=clarification_text,
                 )
+                tracker.record("framing", reframe_usage)
+                typer.echo(tracker.format_stage_line("framing"))
 
                 # Show the updated requirement for confirmation
                 typer.echo(_format_framed_requirement(framed))
@@ -1051,6 +1080,10 @@ async def _run_pipeline(
 
     # -- Phase 5: Save & output (always runs) -------------------------------
 
+    # Display token usage summary
+    if tracker.total.total_tokens > 0:
+        typer.echo(tracker.format_summary())
+
     context_summary = (
         f"Project: {context.project_path}\n"
         f"Languages: {', '.join(context.tech_stack.languages)}\n"
@@ -1066,6 +1099,7 @@ async def _run_pipeline(
         advisor_responses=advisor_responses,
         context_summary=context_summary,
         framed_requirement=framed.model_dump(),
+        token_usage=tracker.to_dict(),
         settings=settings,
     )
 

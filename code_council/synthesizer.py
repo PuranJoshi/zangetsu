@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from code_council.advisors import discover_analysis_skill, discover_synthesizer_skill
 from code_council.config import get_skill_model
 from code_council.context import ProjectContext
+from code_council.llm import LLMResult, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,15 @@ class LLMClient(Protocol):
         seed: int | None = None,
         model: str | None = None,
     ) -> str: ...
+
+    async def complete_with_usage(
+        self,
+        prompt: str,
+        *,
+        temperature: float | None = None,
+        seed: int | None = None,
+        model: str | None = None,
+    ) -> LLMResult: ...
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +372,7 @@ async def analyze_conflicts(
     advisor_responses: dict[str, str],
     context: ProjectContext,
     llm: LLMClient,
-) -> str:
+) -> tuple[str, TokenUsage]:
     """Pass 1: Analyze advisor outputs and resolve conflicts.
 
     Reads all advisor analyses and produces a structured markdown
@@ -370,10 +380,13 @@ async def analyze_conflicts(
     emergent insights.  The returned text is fed into
     ``synthesize_plan`` as the *conflict_analysis* parameter so the
     plan synthesizer can focus on structured output.
+
+    Returns ``(analysis_text, token_usage)``.
     """
     analysis_model = get_skill_model("synthesizer_analysis") or None
     prompt = _analysis_prompt(change_description, advisor_responses, context)
-    return await llm.complete(prompt, model=analysis_model)
+    result = await llm.complete_with_usage(prompt, model=analysis_model)
+    return result.text, result.usage
 
 
 async def synthesize_plan(
@@ -384,7 +397,7 @@ async def synthesize_plan(
     llm: LLMClient,
     negotiation_round: int = 0,
     conflict_analysis: str = "",
-) -> ChangePlan:
+) -> tuple[ChangePlan, TokenUsage]:
     """Synthesize a ChangePlan from advisor responses.
 
     Two-pass synthesis:
@@ -395,13 +408,19 @@ async def synthesize_plan(
     2. The LLM produces structured JSON matching the ``ChangePlan``
        schema.  Retries once if JSON is invalid.
 
+    Returns ``(ChangePlan, TokenUsage)``.
+
     Callers should call ``analyze_conflicts`` first and pass the result
     as *conflict_analysis*.  If omitted, the synthesizer falls back to
     single-pass mode (backward-compatible).
     """
     synth_model = get_skill_model("synthesizer") or None
+    stage_usage = TokenUsage()
+
     prompt = _synthesizer_prompt(change_description, advisor_responses, context, conflict_analysis)
-    raw_response = await llm.complete(prompt, model=synth_model)
+    result = await llm.complete_with_usage(prompt, model=synth_model)
+    raw_response = result.text
+    stage_usage += result.usage
     json_text = _extract_json(raw_response)
 
     try:
@@ -412,7 +431,9 @@ async def synthesize_plan(
             "Fix it and return ONLY the corrected JSON:\n\n"
             f"{raw_response}"
         )
-        raw_response = await llm.complete(repair_prompt, model=synth_model)
+        retry_result = await llm.complete_with_usage(repair_prompt, model=synth_model)
+        raw_response = retry_result.text
+        stage_usage += retry_result.usage
         json_text = _extract_json(raw_response)
         data = json.loads(json_text)
 
@@ -420,10 +441,11 @@ async def synthesize_plan(
     # values that are file paths instead of step numbers.
     data = _fix_depends_on(data)
 
-    return ChangePlan(
+    plan = ChangePlan(
         plan_id=plan_id,
         change_description=change_description,
         negotiation_round=negotiation_round,
         raw_advisor_responses=advisor_responses,
         **data,
     )
+    return plan, stage_usage

@@ -84,6 +84,8 @@ zangetsu/
 │           ├── AdvisorCard.tsx       # Individual expandable advisor card
 │           ├── PipelineTracker.tsx   # Race-track progress bar (inline in header)
 │           ├── PlanView.tsx          # Step 6: synthesized plan (tabbed layout, sticky footer)
+│           ├── PlanSidebar.tsx       # Left sidebar: recent plans list
+│           ├── TokenUsageSidebar.tsx # Left sidebar: live per-stage token usage display
 │           ├── PlanHistory.tsx       # Plan list / history view (detail via component state)
 │           ├── CouncilReviewPanel.tsx # Council review: advisor feedback + decision gate display
 │           ├── ErrorDisplay.tsx      # Reusable error component (retry/dismiss, compact variant)
@@ -246,7 +248,11 @@ previous work without starting from scratch.
 
 ### `cli.py` (~1400 lines)
 Typer CLI entry point. Installed as both `bankai` and `code-council` commands.
-Orchestrates the full pipeline including the post-synthesis review loop. Contains:
+Orchestrates the full pipeline including the post-synthesis review loop.
+Uses `TokenTracker` to accumulate per-stage token usage and display it
+inline after each stage (e.g., `Advisors: 4,200 tokens (3,600 in + 600 out) | Total: 4,350`)
+plus a final summary table before saving. Passes `tracker.to_dict()` to
+`save_plan()` for persistence. Contains:
 - `bankai` callback (main command) -- runs `_run_pipeline()`. Flags:
   - `--load <plan_id>` -- resume from a previous plan or transcript
   - `--export <plan_id>` -- export a plan as humanised Markdown
@@ -310,16 +316,25 @@ when `Settings()` is constructed. Factory function `get_settings()` creates
 fresh instances for test isolation. Includes `plan_path` and `transcript_path`
 properties for deriving storage directories from string settings.
 
-### `llm.py` (286 lines)
+### `llm.py` (~380 lines)
 LLM client wrapper using the OpenAI Python SDK pointed at any OpenAI-compatible endpoint.
-- `LLMClient` Protocol for structural typing
+- `TokenUsage` dataclass with `__add__`, `__iadd__`, `to_dict()` for easy
+  accumulation across multiple LLM calls
+- `LLMResult` dataclass (text + `TokenUsage`)
+- `TokenTracker` class -- per-stage token accumulator with `record()`,
+  `to_dict()`, `format_stage_line()`, `format_summary()`. Used by
+  `cli.py` and `daemon.py` to track and display per-stage + total usage.
+- `LLMClient` Protocol for structural typing (includes `complete`,
+  `chat`, `complete_with_usage`, `chat_with_usage`)
 - `OpenAICompatibleLLM` implementation with retry (exponential backoff, max 3 retries)
   and `asyncio.wait_for()` timeout
 - Per-call model override: all methods accept an optional `model` parameter. If
   provided (non-empty), the call uses that model instead of the global default.
   This enables per-skill model routing across the entire pipeline.
-- Both basic API (`complete`/`chat`) and extended API (`complete_with_usage`/
-  `chat_with_usage` returning `LLMResult` with token counts)
+- Both basic API (`complete`/`chat` returning `str`) and extended API
+  (`complete_with_usage`/`chat_with_usage` returning `LLMResult` with token
+  counts). Pipeline modules use the extended API; the basic API remains for
+  backward compatibility.
 
 ### `context.py` (~800 lines)
 Project filesystem scanner that builds structured context for advisors.
@@ -334,19 +349,23 @@ Project filesystem scanner that builds structured context for advisors.
   change description and framed requirement so users can generate
   `ProjectContext` JSON via an external AI tool instead of scanning locally
 
-### `framer.py` (~270 lines)
+### `framer.py` (~280 lines)
 Requirements framing -- Phase 1. Takes a raw feature request, calls the LLM
 with the framer skill prompt, and produces a `FramedRequirement` (type, title,
-description, acceptance criteria, clarifications). Supports per-skill model
-routing via `CODE_COUNCIL_MODEL_FRAMER`. Includes
-`_backfill_story_types()` to default missing `type` fields in sub-stories
-(LLMs sometimes omit them). If `needs_clarification()` is true, the CLI
-collects answers for the entire batch of questions locally (no LLM call
-between questions), then makes one LLM call with all answers to re-evaluate.
-Hard cap of `MAX_CLARIFICATION_BATCHES` (3) prevents infinite loops.
+description, acceptance criteria, clarifications). Returns
+`(FramedRequirement, TokenUsage)` -- the framed result plus accumulated token
+usage from all LLM calls in this stage (including retries). Uses
+`complete_with_usage()` for token tracking. Supports per-skill model routing
+via `CODE_COUNCIL_MODEL_FRAMER`. Includes `_backfill_story_types()` to default
+missing `type` fields in sub-stories (LLMs sometimes omit them). If
+`needs_clarification()` is true, the CLI collects answers for the entire batch
+of questions locally (no LLM call between questions), then makes one LLM call
+with all answers to re-evaluate. Hard cap of `MAX_CLARIFICATION_BATCHES` (3)
+prevents infinite loops.
 
-### `advisors.py` (~740 lines)
+### `advisors.py` (~760 lines)
 Advisor skill registry, parallel execution engine, and council review.
+All functions use `complete_with_usage()` and return `TokenUsage` for tracking.
 - Auto-discovers advisor skills from `skills/*.md` files
 - Parses YAML frontmatter for config (temperature_rank, seed_offset, model override)
 - **Per-advisor model routing**: each advisor can use a different LLM model.
@@ -356,28 +375,31 @@ Advisor skill registry, parallel execution engine, and council review.
   3. Global `CODE_COUNCIL_MODEL` default (used when model is empty)
 - Assigns evenly spaced temperatures across advisors (default range: 0.6--1.0)
 - Generates deterministic seeds from SHA-256(plan_id) + offset
-- Runs all advisors in parallel via `asyncio.gather()`, passing each advisor's
-  resolved model to the LLM client
-- `review_plan()` -- each advisor reviews the synthesized plan (uses per-advisor
-  model routing)
+- `run_advisors()` -- runs all advisors in parallel via `asyncio.gather()`.
+  Returns `(responses, params, timing, token_usage)` 4-tuple.
+- `review_plan()` -- each advisor reviews the synthesized plan. Returns
+  `(reviews, timing, token_usage)` 3-tuple.
 - `decide_changes()` -- Business+Architect decision gate reviews all advisor
-  recommendations and decides ACCEPT/DEFER/DROP for each (uses
-  `CODE_COUNCIL_MODEL_DECISION_GATE` if set)
+  recommendations and decides ACCEPT/DEFER/DROP for each. Returns
+  `(decision, token_usage)` tuple. (uses `CODE_COUNCIL_MODEL_DECISION_GATE`
+  if set)
 - `discover_decision_gate_skill()` -- loads the decision gate skill from skills/
 
-### `synthesizer.py` (~430 lines)
-Two-pass plan synthesis -- Phase 4. Both passes support per-skill model
-routing via `CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS` and
-`CODE_COUNCIL_MODEL_SYNTHESIZER`.
+### `synthesizer.py` (~450 lines)
+Two-pass plan synthesis -- Phase 4. Both passes use `complete_with_usage()`
+and return `TokenUsage` for tracking. Supports per-skill model routing via
+`CODE_COUNCIL_MODEL_SYNTHESIZER_ANALYSIS` and `CODE_COUNCIL_MODEL_SYNTHESIZER`.
 
 - **Pass 1 (conflict analysis):** `analyze_conflicts()` reads all advisor
   outputs and produces a structured markdown document identifying
   agreements, conflicts (with resolutions), critical blockers, and emergent
-  insights. Uses the `synthesizer_analysis.md` skill prompt.
+  insights. Returns `(analysis_text, token_usage)`. Uses the
+  `synthesizer_analysis.md` skill prompt.
 - **Pass 2 (plan generation):** `synthesize_plan()` receives the conflict
   analysis plus the raw advisor outputs and produces a structured
-  `ChangePlan` JSON. The conflict analysis gives the synthesizer
-  pre-computed reasoning so it can focus on structured output.
+  `ChangePlan` JSON. Returns `(ChangePlan, token_usage)`. The conflict
+  analysis gives the synthesizer pre-computed reasoning so it can focus on
+  structured output.
 
 Output: `ChangePlan` with plan_id, title, summary, affected files, ordered
 implementation steps, notes from each perspective, acceptance criteria,
@@ -391,18 +413,20 @@ revised after council feedback). `COMPLETED` can transition to `COUNCIL_REVIEWED
 when the user applies accepted council recommendations. `VALID_TRANSITIONS`
 dict enforces legal state changes. Tracks negotiation rounds.
 
-### `storage.py` (~280 lines)
+### `storage.py` (~290 lines)
 JSON file-based plan persistence at `~/.code-council/plans/`. Filenames use
 `plan-<hex>-<slug>.json` for human readability; the stored `plan_id` is the
 hex-only identifier. Council-reviewed plans are saved as separate
 `plan-<hex>-<slug>-revised.json` files so the original plan is preserved for
 comparison. Load and delete use glob matching (`plan-<hex>-*.json`) with
 backward-compat exact match for old-format files. Saves plan data, state,
-advisor responses, context summary, and timestamps. Forgiving on load (returns
-None for missing/corrupt files). Supports `base_plan_id` for linking re-advise
-plans back to their original plan. `save_council_review()` appends council
-review results (advisor reviews + decision gate output) to the original plan
-file (not the revised variant) via read-modify-write.
+advisor responses, context summary, token usage, and timestamps. Forgiving on
+load (returns None for missing/corrupt files). Supports `base_plan_id` for
+linking re-advise plans back to their original plan. Optional `token_usage`
+parameter (from `TokenTracker.to_dict()`) persists per-stage and total token
+counts in the plan JSON. `save_council_review()` appends council review results
+(advisor reviews + decision gate output) to the original plan file (not the
+revised variant) via read-modify-write.
 
 ### `transcript.py` (~230 lines)
 Session transcript storage at `~/.code-council/transcripts/`. Records the
@@ -459,6 +483,22 @@ frontmatter. No code changes needed.
 
 ## Data Models
 
+### `TokenUsage` (llm.py)
+```
+prompt_tokens: int                 # tokens sent to the LLM
+completion_tokens: int             # tokens received from the LLM
+total_tokens: int                  # prompt + completion
+```
+Supports `+` / `+=` for accumulation and `to_dict()` for serialization.
+
+### `TokenTracker` (llm.py)
+```
+stage_usage: dict[str, TokenUsage] # per-stage accumulated usage
+total: TokenUsage                  # cumulative across all stages
+```
+Methods: `record(stage, usage)`, `to_dict()`, `format_stage_line(stage)`,
+`format_summary()`.
+
 ### `FramedRequirement` (framer.py)
 ```
 type: str                          # epic | story | task | bug
@@ -513,6 +553,7 @@ advisor_responses: dict[str, str]
 context_summary: str
 framed_requirement: dict | null    # FramedRequirement.model_dump()
 base_plan_id: str | null           # original plan this review is based on (null for first plans)
+token_usage: dict | null           # TokenTracker.to_dict() -- per-stage + total token counts
 council_review: dict | null        # Added after council review (see below)
 ```
 
@@ -653,17 +694,25 @@ one per line, `#` comments supported).
    `/history`). Plan detail navigation is handled by component state, not
    deep-linked URLs, keeping the router minimal.
 
+10. **Per-stage token tracking** -- Every `complete_with_usage()` /
+    `chat_with_usage()` call returns `TokenUsage` alongside the text.
+    Pipeline functions return it as part of their result tuples.
+    `TokenTracker` accumulates per-stage totals. CLI displays inline +
+    summary table. Web UI streams `token_usage/update` SSE events into
+    `TokenUsageSidebar`. Framing tokens are tracked via WebSocket messages.
+    All token data is persisted in the saved plan JSON.
+
 ---
 
 ## Test Suite
 
 17 test files (+ `conftest.py` with shared fixtures) using `FakeLLM` (no real
-API calls, 253 tests total). Run with `pytest`.
+API calls, 263 tests total). Run with `pytest`.
 
 | Test File | Coverage |
 |---|---|
 | `test_config.py` | Settings defaults, env overrides, require_llm_credentials, env file loading |
-| `test_llm.py` | TokenUsage, LLMResult defaults, FakeLLM response routing |
+| `test_llm.py` | TokenUsage (defaults, add, iadd, to_dict), LLMResult, TokenTracker (record, accumulate, to_dict, format), FakeLLM response routing |
 | `test_skill_registry.py` | Frontmatter parsing, skill discovery, temperature/seed math |
 | `test_skill_model_routing.py` | Per-skill model override field, env var overrides, runtime model routing, non-advisor skills, config/skill mismatch edge cases |
 | `test_context_scanning.py` | Directory tree, tech detection, config files, test patterns |

@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from "react"
-import type { FramedRequirement, ProjectContext, ChangePlan } from "./types"
+import { useState, useCallback, useRef, useEffect, useMemo } from "react"
+import type { FramedRequirement, ProjectContext, ChangePlan, TokenUsageState, StageTokenUsage } from "./types"
 import { useFramer } from "./hooks/useFramer"
 import { useCouncilStream } from "./hooks/useCouncilStream"
 import { useCouncilFeedback } from "./hooks/useCouncilFeedback"
@@ -14,6 +14,7 @@ import { PipelineTracker } from "./components/PipelineTracker"
 import { PlanView } from "./components/PlanView"
 import { PlanHistory } from "./components/PlanHistory"
 import { PlanSidebar } from "./components/PlanSidebar"
+import { TokenUsageSidebar } from "./components/TokenUsageSidebar"
 import { ErrorDisplay } from "./components/ErrorDisplay"
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,46 @@ export default function App() {
   const council = useCouncilStream()
   const councilFeedback = useCouncilFeedback()
   const scanner = useProjectScan()
+
+  // -------------------------------------------------------------------------
+  // Merged token usage: framing + council pipeline + council feedback
+  // -------------------------------------------------------------------------
+  const mergedTokenUsage = useMemo((): TokenUsageState | null => {
+    const stages: StageTokenUsage[] = []
+    const zero = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+    const total = { ...zero }
+
+    // Framing tokens (from WebSocket framer)
+    if (framer.tokenUsage && framer.tokenUsage.total_tokens > 0) {
+      stages.push({ stage: "framing", usage: framer.tokenUsage })
+      total.prompt_tokens += framer.tokenUsage.prompt_tokens
+      total.completion_tokens += framer.tokenUsage.completion_tokens
+      total.total_tokens += framer.tokenUsage.total_tokens
+    }
+
+    // Council pipeline tokens (advisors, analysis, synthesis)
+    if (council.session.tokenUsage) {
+      for (const s of council.session.tokenUsage.stages) {
+        stages.push(s)
+        total.prompt_tokens += s.usage.prompt_tokens
+        total.completion_tokens += s.usage.completion_tokens
+        total.total_tokens += s.usage.total_tokens
+      }
+    }
+
+    // Council feedback tokens (review, decision_gate)
+    if (councilFeedback.state.tokenUsage) {
+      for (const s of councilFeedback.state.tokenUsage.stages) {
+        stages.push(s)
+        total.prompt_tokens += s.usage.prompt_tokens
+        total.completion_tokens += s.usage.completion_tokens
+        total.total_tokens += s.usage.total_tokens
+      }
+    }
+
+    if (stages.length === 0) return null
+    return { stages, total }
+  }, [framer.tokenUsage, council.session.tokenUsage, councilFeedback.state.tokenUsage])
 
   // Guard against duplicate phase transitions during a single render
   const phaseRef = useRef(phase)
@@ -575,12 +616,16 @@ export default function App() {
 
       {/* Body: sidebar + main content */}
       <div className="flex flex-1 min-h-0">
-        {/* Plans sidebar -- always visible */}
-        <PlanSidebar
-          activePlanId={planId}
-          onSelectPlan={handleSidebarSelectPlan}
-          refreshKey={sidebarRefreshKey}
-        />
+        {/* Plans sidebar -- always visible, pinned full height, scrolls independently */}
+        <div className="plan-sidebar flex flex-col border-r border-border bg-surface-secondary
+                        shrink-0 overflow-hidden">
+          <PlanSidebar
+            activePlanId={planId}
+            onSelectPlan={handleSidebarSelectPlan}
+            refreshKey={sidebarRefreshKey}
+          />
+          <TokenUsageSidebar tokenUsage={mergedTokenUsage} />
+        </div>
 
         {/* Main content area */}
         <main className="flex-1 min-w-0 overflow-y-auto">
@@ -712,8 +757,8 @@ export default function App() {
         if (!statusText) return null
 
         return (
-          <div className={`sticky bottom-0 z-10 border-t px-4 py-2.5 flex items-center
-                           justify-center gap-2 backdrop-blur-sm ${colorClass}`}>
+          <div className={`shrink-0 z-20 border-t px-4 py-2.5 flex items-center
+                           justify-center gap-2 bg-surface ${colorClass}`}>
             <span className="flex items-center gap-1">
               <span className="animate-pulse-dot">.</span>
               <span className="animate-pulse-dot" style={{ animationDelay: "200ms" }}>.</span>
