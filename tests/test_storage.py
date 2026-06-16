@@ -108,6 +108,7 @@ class TestListRecentPlans:
                 json.dumps(
                     {
                         "plan_id": str(i),
+                        "timestamp": f"2025-01-0{i + 1}T00:00:00+00:00",
                         "change_description": f"Change {i}",
                         "state": {"status": "proposed"},
                         "plan": {"risk_level": "LOW", "estimated_effort": "S"},
@@ -128,6 +129,7 @@ class TestListRecentPlans:
                 json.dumps(
                     {
                         "plan_id": str(i),
+                        "timestamp": f"2025-01-0{i + 1}T00:00:00+00:00",
                         "change_description": f"Change {i}",
                         "state": {"status": "proposed"},
                         "plan": {},
@@ -137,6 +139,30 @@ class TestListRecentPlans:
         settings = _test_settings(tmp_path)
         results = list_recent_plans(limit=2, settings=settings)
         assert len(results) == 2
+
+    def test_ordered_by_timestamp_descending(self, tmp_path: Path) -> None:
+        """Plans should be returned newest-first based on their JSON timestamp."""
+        plans = [
+            ("plan-a.json", "2025-06-01T10:00:00+00:00", "Oldest"),
+            ("plan-b.json", "2025-06-03T10:00:00+00:00", "Newest"),
+            ("plan-c.json", "2025-06-02T10:00:00+00:00", "Middle"),
+        ]
+        for filename, ts, desc in plans:
+            (tmp_path / filename).write_text(
+                json.dumps(
+                    {
+                        "plan_id": filename.replace("plan-", "").replace(".json", ""),
+                        "timestamp": ts,
+                        "change_description": desc,
+                        "state": {"status": "proposed"},
+                        "plan": {},
+                    }
+                )
+            )
+        settings = _test_settings(tmp_path)
+        results = list_recent_plans(limit=10, settings=settings)
+        descriptions = [r["change_description"] for r in results]
+        assert descriptions == ["Newest", "Middle", "Oldest"]
 
 
 class TestDeletePlan:

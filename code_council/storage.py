@@ -217,7 +217,8 @@ def list_recent_plans(
 ) -> list[dict[str, Any]]:
     """Return metadata for the most recent plans.
 
-    Sorted by file modification time (most recent first).
+    Sorted by the ``timestamp`` field stored inside each plan JSON
+    (i.e. the creation time), most recent first.
     Only returns summary metadata, not full plan contents.
     """
     settings = settings or get_settings()
@@ -225,16 +226,8 @@ def list_recent_plans(
     if not plan_dir.is_dir():
         return []
 
-    # glob returns a generator of Path objects matching the pattern.
-    # We sort by mtime (modification time) to get most recent first.
-    files = sorted(
-        plan_dir.glob("plan-*.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-
     results: list[dict[str, Any]] = []
-    for fp in files[:limit]:
+    for fp in plan_dir.glob("plan-*.json"):
         try:
             data = json.loads(fp.read_text())
             results.append(
@@ -252,7 +245,9 @@ def list_recent_plans(
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Skipping unreadable plan %s: %s", fp, exc)
 
-    return results
+    # Sort by creation timestamp (ISO-8601), most recent first.
+    results.sort(key=lambda r: r.get("timestamp", ""), reverse=True)
+    return results[:limit]
 
 
 # ---------------------------------------------------------------------------
